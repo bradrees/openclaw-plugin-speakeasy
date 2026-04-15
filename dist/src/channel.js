@@ -55,6 +55,7 @@ async function buildReplyDeliverer(params) {
     const client = new SpeakeasyApiClient({
         baseUrl: params.account.baseUrl,
         accessToken: params.account.accessToken,
+        refreshToken: params.account.refreshToken,
         logger: params.logger
     });
     const outbound = new SpeakeasyOutboundService(client, params.logger);
@@ -176,6 +177,7 @@ async function startAccountRuntime(params) {
     const client = new SpeakeasyApiClient({
         baseUrl: params.account.baseUrl,
         accessToken: params.account.accessToken,
+        refreshToken: params.account.refreshToken,
         logger
     });
     const store = createCursorStore(params.account);
@@ -344,6 +346,7 @@ export const speakeasyChannelPlugin = {
             const client = new SpeakeasyApiClient({
                 baseUrl: account.baseUrl,
                 accessToken: account.accessToken,
+                refreshToken: account.refreshToken,
                 logger: createAccountLogger(account)
             });
             return client.probeConnectivity();
@@ -391,6 +394,7 @@ export const speakeasyChannelPlugin = {
             const client = new SpeakeasyApiClient({
                 baseUrl: account.baseUrl,
                 accessToken: account.accessToken,
+                refreshToken: account.refreshToken,
                 logger: createAccountLogger(account)
             });
             const outbound = new SpeakeasyOutboundService(client);
@@ -411,6 +415,7 @@ export const speakeasyChannelPlugin = {
             const client = new SpeakeasyApiClient({
                 baseUrl: account.baseUrl,
                 accessToken: account.accessToken,
+                refreshToken: account.refreshToken,
                 logger: createAccountLogger(account)
             });
             const outbound = new SpeakeasyOutboundService(client);

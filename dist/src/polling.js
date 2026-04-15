@@ -21,6 +21,7 @@ export class SpeakeasyPollingLoop {
         this.abortController?.abort();
     }
     async run(signal) {
+        let nextDelayMs = this.params.pollIntervalMs;
         while (!signal.aborted) {
             try {
                 const cursor = await this.params.getCursor();
@@ -33,6 +34,7 @@ export class SpeakeasyPollingLoop {
                 if (response.next_cursor) {
                     await this.params.setCursor(response.next_cursor);
                 }
+                nextDelayMs = this.params.pollIntervalMs;
             }
             catch (error) {
                 if (isAbortError(error)) {
@@ -48,11 +50,17 @@ export class SpeakeasyPollingLoop {
                         continue;
                     }
                 }
+                if (error instanceof SpeakeasyApiError && error.status === 429) {
+                    nextDelayMs = Math.max(error.retryAfterMs ?? this.params.pollIntervalMs * 4, this.params.pollIntervalMs);
+                    this.params.logger.warn("Speakeasy polling rate limited; backing off", {
+                        delayMs: nextDelayMs
+                    });
+                }
                 this.params.logger.warn("Speakeasy polling failed", {
                     error: error instanceof Error ? error.message : String(error)
                 });
             }
-            await delay(this.params.pollIntervalMs, signal).catch((error) => {
+            await delay(nextDelayMs, signal).catch((error) => {
                 if (!isAbortError(error)) {
                     throw error;
                 }
