@@ -231,6 +231,21 @@ export class SpeakeasyApiClient {
     };
   }
 
+  setTyping(topicId: string, typing: boolean, signal?: AbortSignal): Promise<void> {
+    return this.request(
+      `/api/v1/agent/topics/${topicId}/typing`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ typing })
+      },
+      {
+        signal,
+        idempotencyKey: createIdempotencyKey(`typing-${topicId}-${typing ? "on" : "off"}`),
+        attempts: 1
+      }
+    );
+  }
+
   updateMe(displayName: string, signal?: AbortSignal): Promise<SpeakeasyAgentProfile> {
     return this.request(
       "/api/v1/agent/me",

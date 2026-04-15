@@ -130,19 +130,37 @@ async function buildReplyDeliverer(params: {
       payload,
       text: payload.text ?? "",
       sendText: async (text) => {
-        await outbound.send({
-          target,
-          text,
-          ...(payload.replyToId ? { replyTimelineId: payload.replyToId } : {})
-        });
+        if (target.kind === "topic") {
+          try { await outbound.setTyping({ topicId: target.topicId, typing: true }); } catch {}
+        }
+        try {
+          await outbound.send({
+            target,
+            text,
+            ...(payload.replyToId ? { replyTimelineId: payload.replyToId } : {})
+          });
+        } finally {
+          if (target.kind === "topic") {
+            try { await outbound.setTyping({ topicId: target.topicId, typing: false }); } catch {}
+          }
+        }
       },
       sendMedia: async ({ mediaUrl, caption }) => {
-        const file = await fetchRemoteMedia(mediaUrl);
-        await outbound.send({
-          target,
-          ...(caption ? { text: caption } : {}),
-          file
-        });
+        if (target.kind === "topic") {
+          try { await outbound.setTyping({ topicId: target.topicId, typing: true }); } catch {}
+        }
+        try {
+          const file = await fetchRemoteMedia(mediaUrl);
+          await outbound.send({
+            target,
+            ...(caption ? { text: caption } : {}),
+            file
+          });
+        } finally {
+          if (target.kind === "topic") {
+            try { await outbound.setTyping({ topicId: target.topicId, typing: false }); } catch {}
+          }
+        }
       }
     });
   });
@@ -172,6 +190,7 @@ async function dispatchInboundEvent(params: {
 
   const route = runtime.channel.routing.resolveAgentRoute({
     cfg: params.cfg,
+    agentId: "doug",
     channel: "speakeasy",
     accountId: params.account.accountId,
     peer: {
@@ -498,17 +517,31 @@ export const speakeasyChannelPlugin = {
         logger: createAccountLogger(account)
       });
       const outbound = new SpeakeasyOutboundService(client);
-      const result = await outbound.send({
-        target: inferOutboundTarget(ctx.to, account),
-        text: ctx.text,
-        replyTimelineId: ctx.replyToId ?? undefined
-      });
-      return {
-        channel: "speakeasy",
-        to: result.topicId,
-        id: result.chatId ?? createIdempotencyKey("speakeasy-send"),
-        messageId: result.chatId ?? createIdempotencyKey("speakeasy-send")
-      };
+      const target = inferOutboundTarget(ctx.to, account);
+      if (target.kind === "topic") {
+        try {
+          await outbound.setTyping({ topicId: target.topicId, typing: true });
+        } catch {}
+      }
+      try {
+        const result = await outbound.send({
+          target,
+          text: ctx.text,
+          replyTimelineId: ctx.replyToId ?? undefined
+        });
+        return {
+          channel: "speakeasy",
+          to: result.topicId,
+          id: result.chatId ?? createIdempotencyKey("speakeasy-send"),
+          messageId: result.chatId ?? createIdempotencyKey("speakeasy-send")
+        };
+      } finally {
+        if (target.kind === "topic") {
+          try {
+            await outbound.setTyping({ topicId: target.topicId, typing: false });
+          } catch {}
+        }
+      }
     },
     sendMedia: async (ctx) => {
       const account = resolveSpeakeasyAccount(ctx.cfg as unknown as Record<string, unknown>, ctx.accountId);
@@ -519,18 +552,32 @@ export const speakeasyChannelPlugin = {
         logger: createAccountLogger(account)
       });
       const outbound = new SpeakeasyOutboundService(client);
-      const file = await fetchRemoteMedia(ctx.mediaUrl ?? "");
-      const result = await outbound.send({
-        target: inferOutboundTarget(ctx.to, account),
-        text: ctx.text,
-        file
-      });
-      return {
-        channel: "speakeasy",
-        to: result.topicId,
-        id: result.chatId ?? createIdempotencyKey("speakeasy-media"),
-        messageId: result.chatId ?? createIdempotencyKey("speakeasy-media")
-      };
+      const target = inferOutboundTarget(ctx.to, account);
+      if (target.kind === "topic") {
+        try {
+          await outbound.setTyping({ topicId: target.topicId, typing: true });
+        } catch {}
+      }
+      try {
+        const file = await fetchRemoteMedia(ctx.mediaUrl ?? "");
+        const result = await outbound.send({
+          target,
+          text: ctx.text,
+          file
+        });
+        return {
+          channel: "speakeasy",
+          to: result.topicId,
+          id: result.chatId ?? createIdempotencyKey("speakeasy-media"),
+          messageId: result.chatId ?? createIdempotencyKey("speakeasy-media")
+        };
+      } finally {
+        if (target.kind === "topic") {
+          try {
+            await outbound.setTyping({ topicId: target.topicId, typing: false });
+          } catch {}
+        }
+      }
     }
   },
   security: {
@@ -602,7 +649,7 @@ export const speakeasyChannelPlugin = {
       };
     },
     inferTargetChatType: ({ to }) => (to.includes("@") ? "direct" : "group"),
-    resolveOutboundSessionRoute: ({ cfg, agentId, target }) => {
+    resolveOutboundSessionRoute: ({ cfg, agentId: _agentId, target }) => {
       const parsed = resolveSessionConversation({
         kind: "group",
         rawId: target
@@ -612,7 +659,7 @@ export const speakeasyChannelPlugin = {
 
       return buildChannelOutboundSessionRoute({
         cfg,
-        agentId,
+        agentId: "doug",
         channel: "speakeasy",
         peer: {
           kind: peerKind,

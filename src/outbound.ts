@@ -100,6 +100,13 @@ export class SpeakeasyOutboundService {
     };
   }
 
+  async setTyping(params: {
+    topicId: string;
+    typing: boolean;
+  }): Promise<void> {
+    await this.client.setTyping(params.topicId, params.typing);
+  }
+
   async edit(params: {
     topicId: string;
     chatId: string;

@@ -176,6 +176,16 @@ export class SpeakeasyApiClient {
             topicCount
         };
     }
+    setTyping(topicId, typing, signal) {
+        return this.request(`/api/v1/agent/topics/${topicId}/typing`, {
+            method: "PATCH",
+            body: JSON.stringify({ typing })
+        }, {
+            signal,
+            idempotencyKey: createIdempotencyKey(`typing-${topicId}-${typing ? "on" : "off"}`),
+            attempts: 1
+        });
+    }
     updateMe(displayName, signal) {
         return this.request("/api/v1/agent/me", {
             method: "PATCH",
