@@ -114,11 +114,12 @@ export class SpeakeasyApiClient {
 
   async getMeIfAvailable(signal?: AbortSignal): Promise<SpeakeasyAgentProfile | undefined> {
     try {
-      return await this.getMe(signal);
+      return await this.request("/api/v1/agent/me", { method: "GET" }, { signal, attempts: 1 });
     } catch (error) {
-      if (error instanceof SpeakeasyApiError && error.status === 404) {
-        this.options.logger?.warn("Speakeasy agent profile endpoint is unavailable", {
+      if (error instanceof SpeakeasyApiError && (error.status === 404 || error.status === 429)) {
+        this.options.logger?.warn("Speakeasy agent profile endpoint is unavailable for probing", {
           path: "/api/v1/agent/me",
+          status: error.status,
           fallback: "/api/v1/agent/topics"
         });
         return undefined;
@@ -145,7 +146,8 @@ export class SpeakeasyApiClient {
     return {
       endpoint: "agent/topics",
       degraded: true,
-      warning: "GET /api/v1/agent/me returned 404; connectivity verified with GET /api/v1/agent/topics instead.",
+      warning:
+        "GET /api/v1/agent/me was unavailable or rate limited; connectivity verified with GET /api/v1/agent/topics instead.",
       topicCount
     };
   }
