@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { type ChannelPlugin, type PluginRuntime } from "openclaw/plugin-sdk/channel-core";
+import { type ChannelPlugin, type PluginRuntime } from "openclaw/plugin-sdk/core";
 import type { ResolvedSpeakeasyAccount } from "./types.js";
 export declare const WEBHOOK_ROUTE_PREFIX = "/plugins/openclaw-plugin-speakeasy/webhooks/";
 export declare function setSpeakeasyRuntime(runtime: PluginRuntime): void;

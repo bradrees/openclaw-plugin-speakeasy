@@ -1,5 +1,5 @@
-import { buildChannelOutboundSessionRoute, createChannelPluginBase } from "openclaw/plugin-sdk/channel-core";
-import { dispatchInboundReplyWithBase } from "openclaw/plugin-sdk/inbound-reply-dispatch";
+import { buildChannelOutboundSessionRoute, createChannelPluginBase } from "openclaw/plugin-sdk/core";
+import { dispatchInboundReplyWithBase } from "openclaw/plugin-sdk/channel-inbound";
 import { createNormalizedOutboundDeliverer, deliverTextOrMediaReply } from "openclaw/plugin-sdk/reply-payload";
 import { createPluginRuntimeStore } from "openclaw/plugin-sdk/runtime-store";
 import { SPEAKEASY_CHANNEL_JSON_SCHEMA, resolveSpeakeasyAccount, validateSpeakeasyAccount, writeSpeakeasyAccount } from "./config.js";
@@ -243,7 +243,7 @@ async function startAccountRuntime(params) {
 }
 export const speakeasyChannelPlugin = {
     ...createChannelPluginBase({
-        id: "speakeasy",
+        id: "openclaw-plugin-speakeasy",
         meta: {
             id: "speakeasy",
             label: "Speakeasy",

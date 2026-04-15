@@ -1,4 +1,4 @@
-import { type OpenClawConfig } from "openclaw/plugin-sdk/channel-core";
+import { type OpenClawConfig } from "openclaw/plugin-sdk/core";
 import type { LoggerLike, ResolvedSpeakeasyAccount, SetupProbeResult } from "./types.js";
 export declare function runSpeakeasySetup(params: {
     account: ResolvedSpeakeasyAccount;
@@ -12,7 +12,7 @@ export declare function verifySpeakeasyAccountFromConfig(params: {
     logger?: LoggerLike;
 }): Promise<SetupProbeResult>;
 declare const _default: {
-    plugin: import("openclaw/plugin-sdk/channel-core").ChannelPlugin<ResolvedSpeakeasyAccount>;
+    plugin: import("openclaw/plugin-sdk/core").ChannelPlugin<ResolvedSpeakeasyAccount>;
 };
 export default _default;
 //# sourceMappingURL=setup.d.ts.map

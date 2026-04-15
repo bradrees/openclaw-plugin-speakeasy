@@ -1,4 +1,4 @@
-import { defineSetupPluginEntry } from "openclaw/plugin-sdk/channel-core";
+import { defineSetupPluginEntry } from "openclaw/plugin-sdk/core";
 import { resolveSpeakeasyAccount } from "./config.js";
 import { SpeakeasyApiClient } from "./client.js";
 import { speakeasyChannelPlugin } from "./channel.js";

@@ -6,8 +6,8 @@ import {
   type ChannelPlugin,
   type OpenClawConfig,
   type PluginRuntime
-} from "openclaw/plugin-sdk/channel-core";
-import { dispatchInboundReplyWithBase } from "openclaw/plugin-sdk/inbound-reply-dispatch";
+} from "openclaw/plugin-sdk/core";
+import { dispatchInboundReplyWithBase } from "openclaw/plugin-sdk/channel-inbound";
 import {
   createNormalizedOutboundDeliverer,
   deliverTextOrMediaReply,
@@ -329,7 +329,7 @@ async function startAccountRuntime(params: {
 
 export const speakeasyChannelPlugin = {
   ...createChannelPluginBase<ResolvedSpeakeasyAccount>({
-    id: "speakeasy",
+    id: "openclaw-plugin-speakeasy",
     meta: {
       id: "speakeasy",
       label: "Speakeasy",

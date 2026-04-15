@@ -1,4 +1,4 @@
-import { defineChannelPluginEntry } from "openclaw/plugin-sdk/channel-core";
+import { defineChannelPluginEntry } from "openclaw/plugin-sdk/core";
 import { handleSpeakeasyWebhookRoute, setSpeakeasyRuntime, speakeasyChannelPlugin } from "./channel.js";
 import { SPEAKEASY_CHANNEL_JSON_SCHEMA } from "./config.js";
 export { handleSpeakeasyWebhookRoute, setSpeakeasyRuntime, speakeasyChannelPlugin };

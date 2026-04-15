@@ -20,20 +20,20 @@
   ],
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
     },
     "./setup": {
-      "types": "./dist/setup.d.ts",
-      "default": "./dist/setup.js"
+      "types": "./dist/src/setup.d.ts",
+      "default": "./dist/src/setup.js"
     },
     "./session-key-api": {
-      "types": "./dist/session-key-api.d.ts",
-      "default": "./dist/session-key-api.js"
+      "types": "./dist/src/session-key-api.d.ts",
+      "default": "./dist/src/session-key-api.js"
     },
     "./auth": {
-      "types": "./dist/auth.d.ts",
-      "default": "./dist/auth.js"
+      "types": "./dist/src/auth.d.ts",
+      "default": "./dist/src/auth.js"
     }
   },
   "scripts": {
@@ -56,9 +56,9 @@
   },
   "openclaw": {
     "extensions": [
-      "./dist/index.js"
+      "./dist/src/index.js"
     ],
-    "setupEntry": "./dist/setup.js",
+    "setupEntry": "./dist/src/setup.js",
     "channel": {
       "id": "speakeasy",
       "label": "Speakeasy",
@@ -69,11 +69,11 @@
       "order": 70,
       "quickstartAllowFrom": true,
       "persistedAuthState": {
-        "specifier": "./dist/auth.js",
+        "specifier": "./dist/src/auth.js",
         "exportName": "hasAnySpeakeasyAuth"
       },
       "configuredState": {
-        "specifier": "./dist/auth.js",
+        "specifier": "./dist/src/auth.js",
         "exportName": "hasAnySpeakeasyConfiguredState"
       }
     },
