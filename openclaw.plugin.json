@@ -1,0 +1,146 @@
+{
+  "id": "openclaw-plugin-speakeasy",
+  "name": "OpenClaw Speakeasy",
+  "description": "Speakeasy topic and direct-chat integration for OpenClaw.",
+  "channels": [
+    "speakeasy"
+  ],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false
+  },
+  "channelConfigs": {
+    "speakeasy": {
+      "label": "Speakeasy",
+      "description": "Speakeasy external agent channel settings.",
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "accounts": {
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": {
+              "$ref": "#/$defs/account"
+            }
+          }
+        },
+        "required": [
+          "accounts"
+        ],
+        "$defs": {
+          "account": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "baseUrl": {
+                "type": "string",
+                "format": "uri"
+              },
+              "accessToken": {
+                "type": "string",
+                "minLength": 1
+              },
+              "refreshToken": {
+                "type": "string"
+              },
+              "webhookSecret": {
+                "type": "string"
+              },
+              "transport": {
+                "type": "string",
+                "enum": [
+                  "websocket",
+                  "polling",
+                  "webhook"
+                ]
+              },
+              "cursorStore": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "file",
+                      "memory"
+                    ]
+                  },
+                  "path": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              },
+              "allowDirectMessages": {
+                "type": "boolean"
+              },
+              "allowTopicMessages": {
+                "type": "boolean"
+              },
+              "mentionOnly": {
+                "type": "boolean"
+              },
+              "allowedTopicIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "allowedUserHandles": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "botDisplayName": {
+                "type": "string"
+              },
+              "debugLogging": {
+                "type": "boolean"
+              },
+              "pollIntervalMs": {
+                "type": "integer",
+                "minimum": 1000
+              },
+              "websocketHeartbeatMs": {
+                "type": "integer",
+                "minimum": 1000
+              }
+            },
+            "required": [
+              "baseUrl",
+              "accessToken"
+            ]
+          }
+        }
+      },
+      "uiHints": {
+        "accounts.*.baseUrl": {
+          "label": "Base URL",
+          "placeholder": "https://speakeasy.example.com"
+        },
+        "accounts.*.accessToken": {
+          "label": "Access token",
+          "sensitive": true
+        },
+        "accounts.*.refreshToken": {
+          "label": "Refresh token",
+          "sensitive": true
+        },
+        "accounts.*.webhookSecret": {
+          "label": "Webhook secret",
+          "sensitive": true
+        },
+        "accounts.*.botDisplayName": {
+          "label": "Bot display name"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,89 @@
+{
+  "name": "@bradrees/openclaw-plugin-speakeasy",
+  "version": "0.1.0",
+  "description": "OpenClaw channel plugin for the Speakeasy external agent API.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Brad Rees",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bradrees/openclaw-plugin-speakeasy.git"
+  },
+  "homepage": "https://github.com/bradrees/openclaw-plugin-speakeasy#readme",
+  "bugs": {
+    "url": "https://github.com/bradrees/openclaw-plugin-speakeasy/issues"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "openclaw.plugin.json"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./setup": {
+      "types": "./dist/setup.d.ts",
+      "default": "./dist/setup.js"
+    },
+    "./session-key-api": {
+      "types": "./dist/session-key-api.d.ts",
+      "default": "./dist/session-key-api.js"
+    },
+    "./auth": {
+      "types": "./dist/auth.d.ts",
+      "default": "./dist/auth.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run --config ./vitest.config.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepare": "tsc -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "openclaw": "^2026.4.14"
+  },
+  "dependencies": {
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^24.6.0",
+    "openclaw": "^2026.4.14",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  },
+  "openclaw": {
+    "extensions": [
+      "./dist/index.js"
+    ],
+    "setupEntry": "./dist/setup.js",
+    "channel": {
+      "id": "speakeasy",
+      "label": "Speakeasy",
+      "selectionLabel": "Speakeasy (plugin)",
+      "docsPath": "/channels/speakeasy",
+      "docsLabel": "speakeasy",
+      "blurb": "Connects the Speakeasy agent API as a topic-first OpenClaw channel.",
+      "order": 70,
+      "quickstartAllowFrom": true,
+      "persistedAuthState": {
+        "specifier": "./dist/auth.js",
+        "exportName": "hasAnySpeakeasyAuth"
+      },
+      "configuredState": {
+        "specifier": "./dist/auth.js",
+        "exportName": "hasAnySpeakeasyConfiguredState"
+      }
+    },
+    "compat": {
+      "pluginApi": ">=2026.4.14",
+      "minGatewayVersion": "2026.4.14"
+    },
+    "build": {
+      "openclawVersion": "2026.4.14",
+      "pluginSdkVersion": "2026.4.14"
+    }
+  }
+}
