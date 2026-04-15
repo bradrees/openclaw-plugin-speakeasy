@@ -489,7 +489,7 @@ export const speakeasyChannelPlugin = {
             });
             return parsed
                 ? {
-                    to: parsed.id.replace(/^(topic|direct):/, "")
+                    to: parsed.id.replace(/^doug:(topic|direct):/, "")
                 }
                 : null;
         },
@@ -504,10 +504,10 @@ export const speakeasyChannelPlugin = {
         resolveSessionTarget: ({ id }) => id,
         parseExplicitTarget: ({ raw }) => {
             const trimmed = raw.trim();
-            if (trimmed.startsWith("topic:") || trimmed.startsWith("direct:")) {
+            if (trimmed.startsWith("topic:") || trimmed.startsWith("direct:") || trimmed.startsWith("doug:topic:") || trimmed.startsWith("doug:direct:")) {
                 return {
                     to: trimmed,
-                    chatType: trimmed.startsWith("direct:") ? "direct" : "group"
+                    chatType: (trimmed.startsWith("direct:") || trimmed.startsWith("doug:direct:")) ? "direct" : "group"
                 };
             }
             if (trimmed.includes("@")) {
@@ -528,7 +528,7 @@ export const speakeasyChannelPlugin = {
                 rawId: target
             });
             const conversationId = parsed?.id ?? target;
-            const peerKind = conversationId.startsWith("direct:") ? "direct" : "group";
+            const peerKind = (conversationId.startsWith("direct:") || conversationId.startsWith("doug:direct:")) ? "direct" : "group";
             return buildChannelOutboundSessionRoute({
                 cfg,
                 agentId: "doug",
