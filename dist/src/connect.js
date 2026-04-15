@@ -6,7 +6,9 @@ export async function createConnectRequest(params) {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      user_handle: params.userHandle,
+      handle: params.handle,
+      requester_name: params.requesterName,
+      ...(params.agentName ? { agent_name: params.agentName } : {}),
       ...(params.callbackUrl ? { callback_url: params.callbackUrl } : {})
     })
   });
@@ -18,15 +20,27 @@ export async function createConnectRequest(params) {
   return await response.json();
 }
 
+export async function pollConnectRequest(params) {
+  const fetchImpl = params.fetchImpl ?? fetch;
+  const url = new URL(`/api/v1/agent_connect/requests/${params.requestId}`, params.baseUrl);
+  url.searchParams.set("poll_token", params.pollToken);
+  const response = await fetchImpl(url, { method: "GET" });
+  if (!response.ok) {
+    throw new Error(`Speakeasy connect poll failed with HTTP ${response.status}`);
+  }
+  return await response.json();
+}
+
 export async function exchangeConnectCode(params) {
   const fetchImpl = params.fetchImpl ?? fetch;
-  const response = await fetchImpl(new URL("/api/v1/agent_connect/exchanges", params.baseUrl), {
+  const response = await fetchImpl(new URL("/api/v1/agent_sessions/exchange", params.baseUrl), {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      code: params.code
+      request_id: params.requestId,
+      exchange_code: params.exchangeCode
     })
   });
 
@@ -39,14 +53,4 @@ export async function exchangeConnectCode(params) {
     throw new Error("Speakeasy connect exchange did not include access_token");
   }
   return json;
-}
-
-export function withFreshTokens(
-  account,
-  tokens) {
-  return {
-    ...account,
-    accessToken: tokens.access_token,
-    refreshToken: tokens.refresh_token ?? account.refreshToken
-  };
 }
