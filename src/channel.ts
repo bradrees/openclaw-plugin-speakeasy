@@ -344,9 +344,10 @@ async function startAccountRuntime(params: {
             cursor: undefined,
             websocketResumeCursor: undefined
           }));
+          await pollingLoop.start();
+        } else {
+          logger.warn("websocket gap did not request polling fallback", { reason });
         }
-
-        await pollingLoop.start();
       }
     });
     await websocket.start();
