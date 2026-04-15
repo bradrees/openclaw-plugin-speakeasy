@@ -182,7 +182,7 @@ async function startAccountRuntime(params) {
         logger
     });
     const store = createCursorStore(params.account);
-    let agentHandle = account.agentHandle;
+    let agentHandle = params.account.agentHandle;
     if (!agentHandle)
         try {
             agentHandle = (await client.getMeIfAvailable())?.agent_handle;
