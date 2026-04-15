@@ -2,11 +2,11 @@ import type { CanonicalConversationRef, ConversationKind, SessionConversationRes
 import { normalizeId } from "./utils.js";
 
 export function buildConversationId(topicId: string, kind: ConversationKind = "topic"): string {
-  return `${kind}:${topicId}`;
+  return `doug:${kind}:${topicId}`;
 }
 
 export function parseConversationId(raw: string): { kind: ConversationKind; topicId: string } | null {
-  const match = /^(topic|direct):(.+)$/.exec(raw.trim());
+  const match = /^doug:(topic|direct):(.+)$/.exec(raw.trim());
 
   if (!match) {
     return null;
@@ -76,7 +76,7 @@ export function resolveSessionConversation(params: {
   rawId: string;
   parentConversationId?: string | null;
 }): SessionConversationResolution | null {
-  const parsed = parseConversationId(params.rawId);
+  const parsed = parseConversationId(params.rawId) ?? parseConversationId(`doug:${params.rawId}`);
 
   if (!parsed) {
     return null;

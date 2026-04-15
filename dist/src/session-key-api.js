@@ -1,9 +1,9 @@
 import { normalizeId } from "./utils.js";
 export function buildConversationId(topicId, kind = "topic") {
-    return `${kind}:${topicId}`;
+    return `doug:${kind}:${topicId}`;
 }
 export function parseConversationId(raw) {
-    const match = /^(topic|direct):(.+)$/.exec(raw.trim());
+    const match = /^doug:(topic|direct):(.+)$/.exec(raw.trim());
     if (!match) {
         return null;
     }
@@ -50,7 +50,7 @@ export function buildConversationRef(params) {
     };
 }
 export function resolveSessionConversation(params) {
-    const parsed = parseConversationId(params.rawId);
+    const parsed = parseConversationId(params.rawId) ?? parseConversationId(`doug:${params.rawId}`);
     if (!parsed) {
         return null;
     }
