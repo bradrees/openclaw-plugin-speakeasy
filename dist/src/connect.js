@@ -15,7 +15,7 @@ export async function createConnectRequest(params) {
     throw new Error(`Speakeasy connect request failed with HTTP ${response.status}`);
   }
 
-  return (await response.json()) as SpeakeasyConnectRequestResponse;
+  return await response.json();
 }
 
 export async function exchangeConnectCode(params) {
@@ -34,7 +34,7 @@ export async function exchangeConnectCode(params) {
     throw new Error(`Speakeasy connect exchange failed with HTTP ${response.status}`);
   }
 
-  const json = (await response.json()) as SpeakeasyTokenExchangeResponse;
+  const json = await response.json();
   if (!json.access_token) {
     throw new Error("Speakeasy connect exchange did not include access_token");
   }
