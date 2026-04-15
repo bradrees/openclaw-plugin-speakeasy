@@ -34,6 +34,10 @@
     "./auth": {
       "types": "./dist/src/auth.d.ts",
       "default": "./dist/src/auth.js"
+    },
+    "./connect": {
+      "types": "./dist/src/connect.d.ts",
+      "default": "./dist/src/connect.js"
     }
   },
   "scripts": {

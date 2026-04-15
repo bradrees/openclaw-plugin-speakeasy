@@ -13,6 +13,7 @@ export {
   speakeasyChannelPlugin
 };
 export * from "./client.js";
+export * from "./connect.js";
 export * from "./config.js";
 export * from "./events.js";
 export * from "./mapping.js";
