@@ -6,7 +6,7 @@ type PollingLoopParams = {
     logger: LoggerLike;
     pollIntervalMs: number;
     getCursor: () => Promise<string | undefined>;
-    setCursor: (cursor: string) => Promise<void>;
+    setCursor: (cursor: string | undefined) => Promise<void>;
     getConversationKinds: () => Promise<Record<string, "topic" | "direct">>;
     onEvent: ReturnType<typeof normalizePollingEvents>[number] extends infer T ? (event: T) => Promise<void> : never;
 };

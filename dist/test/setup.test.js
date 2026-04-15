@@ -54,6 +54,65 @@ describe("setup", () => {
             fetchImpl: fetchImpl
         });
         expect(result.rename.status).toBe("updated");
+        expect(result.probe.endpoint).toBe("agent/me");
+        expect(fetchImpl).toHaveBeenCalledTimes(2);
+    });
+    it("falls back to topics connectivity when /agent/me is unavailable", async () => {
+        const fetchImpl = vi
+            .fn()
+            .mockResolvedValueOnce({
+            ok: false,
+            status: 404,
+            json: async () => ({
+                error: "not found"
+            })
+        })
+            .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({
+                records: {
+                    topics: {
+                        data: {
+                            "10": {
+                                id: 10
+                            }
+                        }
+                    }
+                }
+            })
+        });
+        const result = await runSpeakeasySetup({
+            account: {
+                accountId: "default",
+                enabled: true,
+                baseUrl: "https://example.com",
+                accessToken: "token",
+                botDisplayName: "New Name",
+                transport: "websocket",
+                cursorStore: { kind: "memory" },
+                allowDirectMessages: true,
+                allowTopicMessages: true,
+                mentionOnly: false,
+                debugLogging: false,
+                pollIntervalMs: 5000,
+                websocketHeartbeatMs: 30000
+            },
+            logger: {
+                debug: () => undefined,
+                info: () => undefined,
+                warn: () => undefined,
+                error: () => undefined
+            },
+            allowRename: true,
+            fetchImpl: fetchImpl
+        });
+        expect(result.probe).toEqual({
+            endpoint: "agent/topics",
+            degraded: true,
+            warning: "GET /api/v1/agent/me returned 404; connectivity verified with GET /api/v1/agent/topics instead.",
+            topicCount: 1
+        });
+        expect(result.rename.status).toBe("skipped");
         expect(fetchImpl).toHaveBeenCalledTimes(2);
     });
 });

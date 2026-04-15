@@ -65,6 +65,39 @@ export class SpeakeasyApiClient {
     getMe(signal) {
         return this.request("/api/v1/agent/me", { method: "GET" }, { signal });
     }
+    async getMeIfAvailable(signal) {
+        try {
+            return await this.getMe(signal);
+        }
+        catch (error) {
+            if (error instanceof SpeakeasyApiError && error.status === 404) {
+                this.options.logger?.warn("Speakeasy agent profile endpoint is unavailable", {
+                    path: "/api/v1/agent/me",
+                    fallback: "/api/v1/agent/topics"
+                });
+                return undefined;
+            }
+            throw error;
+        }
+    }
+    async probeConnectivity(signal) {
+        const profile = await this.getMeIfAvailable(signal);
+        if (profile) {
+            return {
+                endpoint: "agent/me",
+                degraded: false,
+                profile
+            };
+        }
+        const topics = await this.listTopics(signal);
+        const topicCount = Object.keys(topics.records.topics?.data ?? {}).length;
+        return {
+            endpoint: "agent/topics",
+            degraded: true,
+            warning: "GET /api/v1/agent/me returned 404; connectivity verified with GET /api/v1/agent/topics instead.",
+            topicCount
+        };
+    }
     updateMe(displayName, signal) {
         return this.request("/api/v1/agent/me", {
             method: "PATCH",

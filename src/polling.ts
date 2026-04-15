@@ -1,5 +1,5 @@
 import type { LoggerLike } from "./types.js";
-import { SpeakeasyApiClient } from "./client.js";
+import { SpeakeasyApiClient, SpeakeasyApiError } from "./client.js";
 import { normalizePollingEvents } from "./events.js";
 import { delay, isAbortError } from "./utils.js";
 
@@ -8,7 +8,7 @@ type PollingLoopParams = {
   logger: LoggerLike;
   pollIntervalMs: number;
   getCursor: () => Promise<string | undefined>;
-  setCursor: (cursor: string) => Promise<void>;
+  setCursor: (cursor: string | undefined) => Promise<void>;
   getConversationKinds: () => Promise<Record<string, "topic" | "direct">>;
   onEvent: ReturnType<typeof normalizePollingEvents>[number] extends infer T
     ? (event: T) => Promise<void>
@@ -54,6 +54,18 @@ export class SpeakeasyPollingLoop {
       } catch (error) {
         if (isAbortError(error)) {
           return;
+        }
+
+        if (error instanceof SpeakeasyApiError && error.status === 400) {
+          const cursor = await this.params.getCursor();
+
+          if (cursor) {
+            this.params.logger.warn("Speakeasy polling cursor was rejected; clearing stored cursor", {
+              cursor
+            });
+            await this.params.setCursor(undefined);
+            continue;
+          }
         }
 
         this.params.logger.warn("Speakeasy polling failed", {

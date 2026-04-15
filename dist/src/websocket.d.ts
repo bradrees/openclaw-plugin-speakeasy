@@ -14,7 +14,6 @@ type WebSocketParams = {
     logger: LoggerLike;
     heartbeatMs: number;
     getCursor: () => Promise<string | undefined>;
-    setCursor: (cursor: string) => Promise<void>;
     getConversationKinds: () => Promise<Record<string, "topic" | "direct">>;
     onEvent: (event: CanonicalInboundEvent) => Promise<void>;
     onRecoverableGap: (reason: string) => Promise<void>;

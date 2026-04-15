@@ -1,3 +1,4 @@
+import { SpeakeasyApiError } from "./client.js";
 import { normalizePollingEvents } from "./events.js";
 import { delay, isAbortError } from "./utils.js";
 export class SpeakeasyPollingLoop {
@@ -36,6 +37,16 @@ export class SpeakeasyPollingLoop {
             catch (error) {
                 if (isAbortError(error)) {
                     return;
+                }
+                if (error instanceof SpeakeasyApiError && error.status === 400) {
+                    const cursor = await this.params.getCursor();
+                    if (cursor) {
+                        this.params.logger.warn("Speakeasy polling cursor was rejected; clearing stored cursor", {
+                            cursor
+                        });
+                        await this.params.setCursor(undefined);
+                        continue;
+                    }
                 }
                 this.params.logger.warn("Speakeasy polling failed", {
                     error: error instanceof Error ? error.message : String(error)

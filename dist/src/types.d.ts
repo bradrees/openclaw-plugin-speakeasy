@@ -135,6 +135,17 @@ export type SpeakeasyPollingEventsResponse = {
     events: SpeakeasyAgentEventEnvelope[];
     next_cursor: string;
 };
+export type SpeakeasyConnectivityProbe = {
+    endpoint: "agent/me";
+    degraded: false;
+    profile: SpeakeasyAgentProfile;
+} | {
+    endpoint: "agent/topics";
+    degraded: true;
+    warning: string;
+    topicCount: number;
+    profile?: undefined;
+};
 export type SpeakeasyDirectChatCreateRequest = {
     handle: string;
     chat: {
@@ -208,7 +219,8 @@ export type InboundPolicyDecision = {
 };
 export type SetupProbeResult = {
     ok: boolean;
-    profile: SpeakeasyAgentProfile;
+    probe: SpeakeasyConnectivityProbe;
+    profile?: SpeakeasyAgentProfile;
     rename: {
         attempted: false;
         status: "skipped";

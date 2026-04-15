@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { SpeakeasyApiError } from "../src/client.js";
+import { SpeakeasyPollingLoop } from "../src/polling.js";
 import { MemoryCursorStore, updateCursorState } from "../src/utils.js";
 import { resolveSessionConversation } from "../src/session-key-api.js";
 describe("session", () => {
@@ -31,6 +33,42 @@ describe("session", () => {
                 "42": "topic"
             }
         });
+    });
+    it("clears invalid event cursors before retrying polling", async () => {
+        let cursor = "bad-cursor";
+        const setCursor = vi.fn(async (next) => {
+            cursor = next;
+        });
+        const pollEvents = vi
+            .fn()
+            .mockRejectedValueOnce(new SpeakeasyApiError("invalid cursor", 400, { error: "invalid cursor" }))
+            .mockResolvedValue({
+            events: [],
+            next_cursor: "fresh-cursor"
+        });
+        const loop = new SpeakeasyPollingLoop({
+            client: {
+                pollEvents
+            },
+            logger: {
+                debug: () => undefined,
+                info: () => undefined,
+                warn: () => undefined,
+                error: () => undefined
+            },
+            pollIntervalMs: 5,
+            getCursor: async () => cursor,
+            setCursor,
+            getConversationKinds: async () => ({}),
+            onEvent: async () => undefined
+        });
+        await loop.start();
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        await loop.stop();
+        expect(setCursor).toHaveBeenCalledWith(undefined);
+        expect(setCursor).toHaveBeenCalledWith("fresh-cursor");
+        expect(pollEvents).toHaveBeenNthCalledWith(1, "bad-cursor", expect.any(AbortSignal));
+        expect(pollEvents).toHaveBeenNthCalledWith(2, undefined, expect.any(AbortSignal));
     });
 });
 //# sourceMappingURL=session.test.js.map

@@ -1,4 +1,4 @@
-import type { DirectUploadRequest, DirectUploadResponse, LoggerLike, SpeakeasyAgentProfile, SpeakeasyChat, SpeakeasyChatWriteInput, SpeakeasyDirectChatCreateRequest, SpeakeasyHistoryResponse, SpeakeasyParticipant, SpeakeasyPollingEventsResponse, SpeakeasyTopic, SpeakeasyTopicsResponse } from "./types.js";
+import type { DirectUploadRequest, DirectUploadResponse, LoggerLike, SpeakeasyConnectivityProbe, SpeakeasyAgentProfile, SpeakeasyChat, SpeakeasyChatWriteInput, SpeakeasyDirectChatCreateRequest, SpeakeasyHistoryResponse, SpeakeasyParticipant, SpeakeasyPollingEventsResponse, SpeakeasyTopic, SpeakeasyTopicsResponse } from "./types.js";
 export declare class SpeakeasyApiError extends Error {
     readonly status: number;
     readonly body?: unknown | undefined;
@@ -22,6 +22,8 @@ export declare class SpeakeasyApiClient {
     get baseUrl(): string;
     private request;
     getMe(signal?: AbortSignal): Promise<SpeakeasyAgentProfile>;
+    getMeIfAvailable(signal?: AbortSignal): Promise<SpeakeasyAgentProfile | undefined>;
+    probeConnectivity(signal?: AbortSignal): Promise<SpeakeasyConnectivityProbe>;
     updateMe(displayName: string, signal?: AbortSignal): Promise<SpeakeasyAgentProfile>;
     listTopics(signal?: AbortSignal): Promise<SpeakeasyTopicsResponse>;
     getTopic(topicId: string, signal?: AbortSignal): Promise<{

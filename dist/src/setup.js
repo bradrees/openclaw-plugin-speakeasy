@@ -12,10 +12,26 @@ export async function runSpeakeasySetup(params) {
         fetchImpl: params.fetchImpl
     });
     logger.info("checking Speakeasy agent connectivity");
-    const profile = await client.getMe();
+    const probe = await client.probeConnectivity();
+    const profile = probe.profile;
+    if (!profile) {
+        logger.warn("Speakeasy agent profile endpoint is unavailable; skipping profile-dependent setup steps", {
+            endpoint: probe.endpoint
+        });
+        return {
+            ok: true,
+            probe,
+            rename: {
+                attempted: false,
+                status: "skipped",
+                reason: "agent profile endpoint is unavailable; rename requires GET /api/v1/agent/me"
+            }
+        };
+    }
     if (!params.account.botDisplayName || params.allowRename === false) {
         return {
             ok: true,
+            probe,
             profile,
             rename: {
                 attempted: false,
@@ -30,6 +46,7 @@ export async function runSpeakeasySetup(params) {
         });
         return {
             ok: true,
+            probe,
             profile,
             rename: {
                 attempted: true,
@@ -45,6 +62,7 @@ export async function runSpeakeasySetup(params) {
         const updated = await client.updateMe(params.account.botDisplayName);
         return {
             ok: true,
+            probe,
             profile: updated,
             rename: {
                 attempted: true,
@@ -58,6 +76,7 @@ export async function runSpeakeasySetup(params) {
         });
         return {
             ok: true,
+            probe,
             profile,
             rename: {
                 attempted: true,

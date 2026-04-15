@@ -45,7 +45,6 @@ export class SpeakeasyWebSocketConnection {
                     });
                     if (normalized.kind === "event") {
                         await this.params.onEvent(normalized.event);
-                        await this.params.setCursor(normalized.event.id);
                         this.reconnectDelayMs = 1_000;
                         return;
                     }

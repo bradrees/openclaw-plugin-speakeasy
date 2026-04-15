@@ -17,7 +17,6 @@ type WebSocketParams = {
   logger: LoggerLike;
   heartbeatMs: number;
   getCursor: () => Promise<string | undefined>;
-  setCursor: (cursor: string) => Promise<void>;
   getConversationKinds: () => Promise<Record<string, "topic" | "direct">>;
   onEvent: (event: CanonicalInboundEvent) => Promise<void>;
   onRecoverableGap: (reason: string) => Promise<void>;
@@ -76,7 +75,6 @@ export class SpeakeasyWebSocketConnection {
 
           if (normalized.kind === "event") {
             await this.params.onEvent(normalized.event);
-            await this.params.setCursor(normalized.event.id);
             this.reconnectDelayMs = 1_000;
             return;
           }
