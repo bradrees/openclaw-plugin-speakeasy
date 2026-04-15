@@ -284,9 +284,9 @@ async function startAccountRuntime(params: {
     logger
   });
   const store = createCursorStore(params.account);
-  let agentHandle: string | undefined;
+  let agentHandle: string | undefined = account.agentHandle;
 
-  try {
+  if (!agentHandle) try {
     agentHandle = (await client.getMeIfAvailable())?.agent_handle;
   } catch (error) {
     logger.warn("failed to resolve Speakeasy agent identity for loop prevention", {

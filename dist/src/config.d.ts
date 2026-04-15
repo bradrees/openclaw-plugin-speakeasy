@@ -47,6 +47,7 @@ export declare const speakeasyChannelSchema: z.ZodObject<{
         websocketHeartbeatMs: number;
         refreshToken?: string | undefined;
         webhookSecret?: string | undefined;
+    agentHandle?: string | undefined;
         allowedTopicIds?: string[] | undefined;
         allowedUserHandles?: string[] | undefined;
         botDisplayName?: string | undefined;
@@ -56,6 +57,7 @@ export declare const speakeasyChannelSchema: z.ZodObject<{
         enabled?: boolean | undefined;
         refreshToken?: string | undefined;
         webhookSecret?: string | undefined;
+    agentHandle?: string | undefined;
         transport?: "websocket" | "polling" | "webhook" | undefined;
         cursorStore?: {
             kind?: "file" | "memory" | undefined;
@@ -87,6 +89,7 @@ export declare const speakeasyChannelSchema: z.ZodObject<{
         websocketHeartbeatMs: number;
         refreshToken?: string | undefined;
         webhookSecret?: string | undefined;
+    agentHandle?: string | undefined;
         allowedTopicIds?: string[] | undefined;
         allowedUserHandles?: string[] | undefined;
         botDisplayName?: string | undefined;
@@ -96,6 +99,7 @@ export declare const speakeasyChannelSchema: z.ZodObject<{
         enabled?: boolean | undefined;
         refreshToken?: string | undefined;
         webhookSecret?: string | undefined;
+    agentHandle?: string | undefined;
         transport?: "websocket" | "polling" | "webhook" | undefined;
         cursorStore?: {
             kind?: "file" | "memory" | undefined;
@@ -129,6 +133,7 @@ export declare const speakeasyChannelSchema: z.ZodObject<{
         websocketHeartbeatMs: number;
         refreshToken?: string | undefined;
         webhookSecret?: string | undefined;
+    agentHandle?: string | undefined;
         allowedTopicIds?: string[] | undefined;
         allowedUserHandles?: string[] | undefined;
         botDisplayName?: string | undefined;
@@ -140,6 +145,7 @@ export declare const speakeasyChannelSchema: z.ZodObject<{
         enabled?: boolean | undefined;
         refreshToken?: string | undefined;
         webhookSecret?: string | undefined;
+    agentHandle?: string | undefined;
         transport?: "websocket" | "polling" | "webhook" | undefined;
         cursorStore?: {
             kind?: "file" | "memory" | undefined;
