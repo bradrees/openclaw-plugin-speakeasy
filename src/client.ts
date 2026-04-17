@@ -125,8 +125,8 @@ export class SpeakeasyApiClient {
 
         if (!response.ok) {
           const responseBody = await safeJson(response);
-          const retryAfterMs = parseRetryAfterMs(response.headers.get("retry-after"));
-          const retryable = response.status >= 500;
+          const retryable = response.status >= 500 || response.status === 429;
+          const retryAfterMs = parseRetryAfterMs(response.headers?.get?.("retry-after") ?? null);
           throw new SpeakeasyApiError(
             `Speakeasy request failed: ${init.method ?? "GET"} ${path} -> ${response.status}`,
             response.status,
@@ -178,9 +178,18 @@ export class SpeakeasyApiClient {
 
         this.options.logger?.warn("retrying Speakeasy API request", {
           attempt,
-          path
+          path,
+          backoffMs:
+            error instanceof SpeakeasyApiError && error.retryAfterMs !== undefined
+              ? error.retryAfterMs
+              : 250 * attempt
         });
-        await delay(error instanceof SpeakeasyApiError && error.retryAfterMs ? error.retryAfterMs : 250 * attempt, retryOptions.signal);
+        await delay(
+          error instanceof SpeakeasyApiError && error.retryAfterMs !== undefined
+            ? error.retryAfterMs
+            : 250 * attempt,
+          retryOptions.signal
+        );
       }
     }
 
@@ -219,14 +228,20 @@ export class SpeakeasyApiClient {
       };
     }
 
+    return this.probeTopicsConnectivity(
+      signal,
+      "GET /api/v1/agent/me was unavailable or rate limited; connectivity verified with GET /api/v1/agent/topics instead."
+    );
+  }
+
+  async probeTopicsConnectivity(signal?: AbortSignal, warning?: string): Promise<SpeakeasyConnectivityProbe> {
     const topics = await this.listTopics(signal);
     const topicCount = Object.keys(topics.records.topics?.data ?? {}).length;
 
     return {
       endpoint: "agent/topics",
-      degraded: true,
-      warning:
-        "GET /api/v1/agent/me was unavailable or rate limited; connectivity verified with GET /api/v1/agent/topics instead.",
+      degraded: Boolean(warning),
+      ...(warning ? { warning } : {}),
       topicCount
     };
   }
@@ -357,7 +372,7 @@ export class SpeakeasyApiClient {
 
   pollEvents(cursor?: string, signal?: AbortSignal): Promise<SpeakeasyPollingEventsResponse> {
     const suffix = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
-    return this.request(`/api/v1/agent/events${suffix}`, { method: "GET" }, { signal });
+    return this.request(`/api/v1/agent/events${suffix}`, { method: "GET" }, { signal, attempts: 1 });
   }
 
   createDirectUpload(payload: DirectUploadRequest, signal?: AbortSignal): Promise<DirectUploadResponse> {
@@ -422,7 +437,6 @@ async function safeJson(response: Response): Promise<unknown> {
     return undefined;
   }
 }
-
 
 function parseRetryAfterMs(value: string | null): number | undefined {
   if (!value) return undefined;

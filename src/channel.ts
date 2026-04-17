@@ -20,6 +20,7 @@ import {
   validateSpeakeasyAccount,
   writeSpeakeasyAccount
 } from "./config.js";
+import { resolveAgentHandleFromAccessToken } from "./auth.js";
 import { SpeakeasyApiClient } from "./client.js";
 import { dedupeEvent, normalizeWebhookEvent, verifyWebhookSignature } from "./events.js";
 import { inferOutboundTarget, SpeakeasyOutboundService } from "./outbound.js";
@@ -36,6 +37,7 @@ import {
   createCursorStore,
   createLogger,
   createIdempotencyKey,
+  encodeSpeakeasyCursor,
   updateCursorState
 } from "./utils.js";
 import { SpeakeasyWebSocketConnection } from "./websocket.js";
@@ -190,7 +192,6 @@ async function dispatchInboundEvent(params: {
 
   const route = runtime.channel.routing.resolveAgentRoute({
     cfg: params.cfg,
-    agentId: "doug",
     channel: "speakeasy",
     accountId: params.account.accountId,
     peer: {
@@ -284,18 +285,40 @@ async function startAccountRuntime(params: {
     logger
   });
   const store = createCursorStore(params.account);
-  let agentHandle: string | undefined = account.agentHandle;
+  const initialState = await store.read();
+  let agentHandle =
+    params.account.agentHandle ??
+    initialState.agentHandle ??
+    resolveAgentHandleFromAccessToken(params.account.accessToken);
 
-  if (!agentHandle) try {
-    agentHandle = (await client.getMeIfAvailable())?.agent_handle;
-  } catch (error) {
-    logger.warn("failed to resolve Speakeasy agent identity for loop prevention", {
-      error: error instanceof Error ? error.message : String(error)
-    });
+  if (agentHandle && initialState.agentHandle !== agentHandle) {
+    await updateCursorState(store, (state) => ({
+      ...state,
+      agentHandle
+    }));
+  }
+
+  if (!agentHandle) {
+    try {
+      agentHandle = (await client.getMeIfAvailable())?.agent_handle;
+
+      if (agentHandle) {
+        await updateCursorState(store, (state) => ({
+          ...state,
+          agentHandle
+        }));
+      }
+    } catch (error) {
+      logger.warn("failed to resolve Speakeasy agent identity for loop prevention", {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
   }
 
   const handleEvent = async (event: CanonicalInboundEvent) => {
     let duplicate = false;
+    const resumeCursor =
+      event.transport === "polling" ? undefined : encodeSpeakeasyCursor(event.id);
 
     await updateCursorState(store, (state) => {
       const deduped = dedupeEvent(state, event.id);
@@ -303,6 +326,7 @@ async function startAccountRuntime(params: {
 
       return {
         ...deduped.state,
+        ...(agentHandle ? { agentHandle } : {}),
         conversationKinds: {
           ...deduped.state.conversationKinds,
           [event.conversation.providerIds.topicId]: event.conversation.kind
@@ -311,6 +335,14 @@ async function startAccountRuntime(params: {
     });
 
     if (duplicate) {
+      if (resumeCursor) {
+        await updateCursorState(store, (state) => ({
+          ...state,
+          cursor: resumeCursor,
+          websocketResumeCursor: resumeCursor
+        }));
+      }
+
       logger.debug("skipping duplicate Speakeasy event", {
         eventId: event.id
       });
@@ -324,18 +356,29 @@ async function startAccountRuntime(params: {
       logger,
       agentHandle
     });
+
+    if (resumeCursor) {
+      await updateCursorState(store, (state) => ({
+        ...state,
+        cursor: resumeCursor,
+        websocketResumeCursor: resumeCursor
+      }));
+    }
   };
 
   const pollingLoop = new SpeakeasyPollingLoop({
     client,
     logger,
     pollIntervalMs: params.account.pollIntervalMs,
-    getCursor: async () => (await store.read()).cursor,
+    getCursor: async () => {
+      const state = await store.read();
+      return state.cursor ?? state.websocketResumeCursor;
+    },
     setCursor: async (cursor) => {
       await updateCursorState(store, (state) => ({
         ...state,
         cursor,
-        websocketResumeCursor: cursor ?? state.websocketResumeCursor
+        websocketResumeCursor: cursor
       }));
     },
     getConversationKinds: async () => (await store.read()).conversationKinds,
@@ -467,7 +510,7 @@ export const speakeasyChannelPlugin = {
         refreshToken: account.refreshToken,
         logger: createAccountLogger(account)
       });
-      return client.probeConnectivity();
+      return client.probeTopicsConnectivity();
     },
     buildAccountSnapshot: async ({ account, probe }) => {
       const connectivityProbe = probe as SpeakeasyConnectivityProbe | undefined;

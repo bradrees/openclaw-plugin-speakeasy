@@ -56,6 +56,12 @@ export class SpeakeasyPollingLoop {
                         delayMs: nextDelayMs
                     });
                 }
+                if (error instanceof SpeakeasyApiError && error.status === 401) {
+                    nextDelayMs = Math.max(error.retryAfterMs ?? 60_000, this.params.pollIntervalMs);
+                    this.params.logger.warn("Speakeasy polling auth failed; backing off", {
+                        delayMs: nextDelayMs
+                    });
+                }
                 this.params.logger.warn("Speakeasy polling failed", {
                     error: error instanceof Error ? error.message : String(error)
                 });

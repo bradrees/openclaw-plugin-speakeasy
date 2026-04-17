@@ -3,6 +3,7 @@ import { handleSpeakeasyWebhookRoute, setSpeakeasyRuntime, speakeasyChannelPlugi
 import { SPEAKEASY_CHANNEL_JSON_SCHEMA } from "./config.js";
 export { handleSpeakeasyWebhookRoute, setSpeakeasyRuntime, speakeasyChannelPlugin };
 export * from "./client.js";
+export * from "./connect.js";
 export * from "./config.js";
 export * from "./events.js";
 export * from "./mapping.js";

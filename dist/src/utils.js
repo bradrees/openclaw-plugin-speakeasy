@@ -27,6 +27,7 @@ export class FileCursorStore {
             return {
                 cursor: parsed.cursor,
                 websocketResumeCursor: parsed.websocketResumeCursor,
+                agentHandle: typeof parsed.agentHandle === "string" ? parsed.agentHandle : undefined,
                 recentEventIds: Array.isArray(parsed.recentEventIds) ? parsed.recentEventIds : [],
                 conversationKinds: parsed.conversationKinds ?? {}
             };
@@ -113,6 +114,13 @@ export function normalizeId(value) {
         return undefined;
     }
     return String(value);
+}
+export function encodeSpeakeasyCursor(value) {
+    const normalized = normalizeId(value);
+    if (!normalized) {
+        return undefined;
+    }
+    return Buffer.from(normalized, "utf8").toString("base64url");
 }
 export function isAbortError(error) {
     return error instanceof Error && error.name === "AbortError";

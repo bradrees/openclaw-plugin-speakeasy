@@ -19,6 +19,7 @@ const accountSchema = z
     accessToken: z.string().trim().min(1, "accessToken is required"),
     refreshToken: z.string().trim().min(1).optional(),
     webhookSecret: z.string().trim().min(1).optional(),
+    agentHandle: z.string().trim().min(1).optional(),
     transport: z.enum(["websocket", "polling", "webhook"]).default("websocket"),
     cursorStore: cursorStoreSchema,
     allowDirectMessages: z.boolean().default(true),
@@ -72,6 +73,7 @@ export const SPEAKEASY_CHANNEL_JSON_SCHEMA = {
                     accessToken: { type: "string", minLength: 1 },
                     refreshToken: { type: "string" },
                     webhookSecret: { type: "string" },
+                    agentHandle: { type: "string" },
                     transport: { type: "string", enum: ["websocket", "polling", "webhook"] },
                     cursorStore: {
                         type: "object",

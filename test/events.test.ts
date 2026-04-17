@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildConversationId,
   dedupeEvent,
   evaluateInboundPolicy,
   normalizePollingEvents,
@@ -40,7 +41,7 @@ describe("events", () => {
     expect(event).toBeDefined();
 
     expect(event!.transport).toBe("polling");
-    expect(event!.conversation.conversationId).toBe("topic:10");
+    expect(event!.conversation.conversationId).toBe(buildConversationId("10"));
   });
 
   it("normalizes websocket envelopes", () => {

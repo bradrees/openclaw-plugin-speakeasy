@@ -27,6 +27,26 @@ export async function refreshAccessToken(account, fetchImpl = fetch) {
     }
     return json.access_token;
 }
+export function decodeSpeakeasyAccessToken(accessToken) {
+    const [, payload] = accessToken.split(".");
+    if (!payload) {
+        return null;
+    }
+    try {
+        const decoded = Buffer.from(payload, "base64url").toString("utf8");
+        const parsed = JSON.parse(decoded);
+        return parsed && typeof parsed === "object" ? parsed : null;
+    }
+    catch {
+        return null;
+    }
+}
+export function resolveAgentHandleFromAccessToken(accessToken) {
+    const payload = decodeSpeakeasyAccessToken(accessToken);
+    const candidate = (typeof payload?.agent_handle === "string" ? payload.agent_handle : undefined) ??
+        (typeof payload?.account_handle === "string" ? payload.account_handle : undefined);
+    return candidate?.trim().toLowerCase() || undefined;
+}
 export function hasAnySpeakeasyConfiguredState(raw) {
     const cfg = raw;
     const accounts = cfg.channels?.speakeasy?.accounts ?? {};

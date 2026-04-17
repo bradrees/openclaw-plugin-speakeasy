@@ -39,6 +39,31 @@ export async function refreshAccessToken(
   return json.access_token;
 }
 
+export function decodeSpeakeasyAccessToken(accessToken: string): Record<string, unknown> | null {
+  const [, payload] = accessToken.split(".");
+
+  if (!payload) {
+    return null;
+  }
+
+  try {
+    const decoded = Buffer.from(payload, "base64url").toString("utf8");
+    const parsed = JSON.parse(decoded) as Record<string, unknown>;
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export function resolveAgentHandleFromAccessToken(accessToken: string): string | undefined {
+  const payload = decodeSpeakeasyAccessToken(accessToken);
+  const candidate =
+    (typeof payload?.agent_handle === "string" ? payload.agent_handle : undefined) ??
+    (typeof payload?.account_handle === "string" ? payload.account_handle : undefined);
+
+  return candidate?.trim().toLowerCase() || undefined;
+}
+
 type OpenClawConfigLike = {
   channels?: {
     speakeasy?: {

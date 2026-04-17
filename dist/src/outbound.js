@@ -42,7 +42,10 @@ export class SpeakeasyOutboundService {
             if (!topicId) {
                 throw new Error("Speakeasy direct chat response did not include a topic id");
             }
-            return { topicId, chatId: chat?.id ? String(chat.id) : undefined };
+            return {
+                topicId,
+                chatId: chat?.id ? String(chat.id) : undefined
+            };
         }
         const response = await this.client.createChat(params.target.topicId, {
             text: params.text,
@@ -53,8 +56,14 @@ export class SpeakeasyOutboundService {
             idempotencyKey: createIdempotencyKey(`topic-send-${params.target.topicId}`)
         });
         const chat = this.client.extractChatFromResponse(response);
-        this.logger?.debug("sent Speakeasy chat", { topicId: params.target.topicId, chatId: chat?.id });
-        return { topicId: params.target.topicId, chatId: chat?.id ? String(chat.id) : undefined };
+        this.logger?.debug("sent Speakeasy chat", {
+            topicId: params.target.topicId,
+            chatId: chat?.id
+        });
+        return {
+            topicId: params.target.topicId,
+            chatId: chat?.id ? String(chat.id) : undefined
+        };
     }
     async setTyping(params) {
         await this.client.setTyping(params.topicId, params.typing);
@@ -75,8 +84,14 @@ export class SpeakeasyOutboundService {
 }
 export function inferOutboundTarget(input, _account) {
     if (input.includes("@")) {
-        return { kind: "direct", handle: input };
+        return {
+            kind: "direct",
+            handle: input
+        };
     }
-    return { kind: "topic", topicId: input.replace(/^(topic|direct):/, "") };
+    return {
+        kind: "topic",
+        topicId: input.replace(/^topic:/, "").replace(/^direct:/, "")
+    };
 }
 //# sourceMappingURL=outbound.js.map

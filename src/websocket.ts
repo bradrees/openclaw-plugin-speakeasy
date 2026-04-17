@@ -1,13 +1,18 @@
 import type { CanonicalInboundEvent, LoggerLike } from "./types.js";
 import { SpeakeasyApiClient } from "./client.js";
 import { normalizeWebsocketMessage, type WebsocketEnvelope } from "./events.js";
-import { delay } from "./utils.js";
+
+type WebSocketEvent = {
+  data?: string;
+  error?: unknown;
+  message?: string;
+};
 
 type WebSocketLike = {
   close: () => void;
   send: (data: string) => void;
-  addEventListener: (name: string, listener: (event: { data?: string }) => void) => void;
-  removeEventListener?: (name: string, listener: (event: { data?: string }) => void) => void;
+  addEventListener: (name: string, listener: (event?: WebSocketEvent) => void) => void;
+  removeEventListener?: (name: string, listener: (event?: WebSocketEvent) => void) => void;
 };
 
 type WebSocketCtor = new (url: string) => WebSocketLike;
@@ -27,6 +32,9 @@ type WebSocketParams = {
 export class SpeakeasyWebSocketConnection {
   private abortController?: AbortController;
   private socket?: WebSocketLike;
+  private reconnectTimer?: NodeJS.Timeout;
+  private heartbeatTimer?: NodeJS.Timeout;
+  private connecting = false;
   private reconnectDelayMs = 1_000;
 
   constructor(private readonly params: WebSocketParams) {}
@@ -38,118 +46,189 @@ export class SpeakeasyWebSocketConnection {
 
   async stop(): Promise<void> {
     this.abortController?.abort();
+    this.clearReconnectTimer();
+    this.clearHeartbeatWatchdog();
     this.socket?.close();
   }
 
   private async connect(signal: AbortSignal): Promise<void> {
-    while (!signal.aborted) {
-      try {
-        const WebSocketImpl = this.resolveWebSocketFactory();
-        const cursor = await this.params.getCursor();
-        const url = new URL("/cable", this.params.client.baseUrl);
-        url.searchParams.set("agent_access_token", this.params.accessToken);
-        const socket = new WebSocketImpl(url.toString());
-        this.socket = socket;
+    if (signal.aborted || this.connecting) {
+      return;
+    }
 
-        await new Promise<void>((resolve, reject) => {
-          let settled = false;
-          let heartbeat: ReturnType<typeof setInterval> | undefined;
+    this.connecting = true;
 
-          const cleanup = () => {
-            if (heartbeat) clearInterval(heartbeat);
-            socket.removeEventListener?.("open", onOpen);
-            socket.removeEventListener?.("message", onMessage);
-            socket.removeEventListener?.("close", onClose);
-            socket.removeEventListener?.("error", onError);
-          };
+    try {
+      const WebSocketImpl = this.resolveWebSocketFactory();
+      const cursor = await this.params.getCursor();
+      const url = new URL("/cable", this.params.client.baseUrl);
+      url.searchParams.set("agent_access_token", this.params.accessToken);
+      const socket = new WebSocketImpl(url.toString());
+      let reconnectFloorMs = 0;
 
-          const finish = (fn: () => void) => {
-            if (settled) return;
-            settled = true;
-            cleanup();
-            fn();
-          };
+      this.socket = socket;
 
-          const onOpen = () => {
-            socket.send(JSON.stringify({
-              command: "subscribe",
-              identifier: JSON.stringify({
-                channel: "AgentEventsChannel",
-                ...(cursor ? { cursor } : {})
-              })
-            }));
+      socket.addEventListener("open", () => {
+        this.reconnectDelayMs = 1_000;
+        this.noteSocketActivity(socket);
+        socket.send(
+          JSON.stringify({
+            command: "subscribe",
+            identifier: JSON.stringify({
+              channel: "AgentEventsChannel",
+              ...(cursor ? { cursor } : {})
+            })
+          })
+        );
+      });
 
-            heartbeat = setInterval(() => {
-              try {
-                socket.send(JSON.stringify({ type: "ping", message: Date.now() }));
-              } catch {}
-            }, this.params.heartbeatMs);
-          };
-
-          const onMessage = async (event: { data?: string }) => {
-            if (!event.data) return;
-            const parsed = JSON.parse(String(event.data)) as WebsocketEnvelope;
-            const normalized = normalizeWebsocketMessage({
-              message: parsed,
-              conversationKinds: await this.params.getConversationKinds()
-            });
-
-            if (normalized.kind === "noop") {
-              if ((parsed as { type?: string }).type === "confirm_subscription") {
-                this.params.logger.info("Speakeasy websocket subscribed", { cursor: cursor ?? null });
-                this.reconnectDelayMs = 1_000;
-                finish(resolve);
-              }
-              return;
-            }
-
-            if (normalized.kind === "event") {
-              await this.params.onEvent(normalized.event);
-              this.reconnectDelayMs = 1_000;
-              return;
-            }
-
-            if (normalized.kind === "recoverable-error") {
-              this.params.logger.warn("Speakeasy websocket requested polling recovery", {
-                code: normalized.code,
-                recovery: normalized.recovery
-              });
-              await this.params.onRecoverableGap(normalized.code);
-              finish(() => reject(new Error(`recoverable websocket gap: ${normalized.code}`)));
-              try { socket.close(); } catch {}
-            }
-          };
-
-          const onClose = () => {
-            finish(() => reject(new Error("websocket closed")));
-          };
-
-          const onError = () => {
-            finish(() => reject(new Error("websocket error")));
-          };
-
-          socket.addEventListener("open", onOpen);
-          socket.addEventListener("message", onMessage);
-          socket.addEventListener("close", onClose);
-          socket.addEventListener("error", onError as (event: { data?: string }) => void);
-
-          signal.addEventListener("abort", () => {
-            try { socket.close(); } catch {}
-            finish(resolve);
-          }, { once: true });
+      socket.addEventListener("message", (event) => {
+        void this.handleMessage(socket, event?.data, async (reason) => {
+          reconnectFloorMs = Math.max(reconnectFloorMs, Math.max(this.params.heartbeatMs, 10_000));
+          await this.params.onRecoverableGap(reason);
+          socket.close();
+        }).catch((error) => {
+          this.params.logger.warn("Speakeasy websocket message handling failed", {
+            error: error instanceof Error ? error.message : String(error)
+          });
+          socket.close();
         });
+      });
 
-        return;
-      } catch (error) {
-        if (signal.aborted) return;
+      socket.addEventListener("error", (event) => {
+        this.params.logger.warn("Speakeasy websocket transport error", {
+          error:
+            event?.error instanceof Error
+              ? event.error.message
+              : event?.message ?? "unknown websocket error"
+        });
+      });
+
+      socket.addEventListener("close", () => {
+        if (this.socket === socket) {
+          this.socket = undefined;
+        }
+
+        this.clearHeartbeatWatchdog();
+
+        if (signal.aborted) {
+          return;
+        }
+
+        if (reconnectFloorMs > this.reconnectDelayMs) {
+          this.reconnectDelayMs = reconnectFloorMs;
+        }
+
+        this.params.logger.warn("Speakeasy websocket disconnected", {
+          reconnectDelayMs: this.reconnectDelayMs
+        });
+        this.scheduleReconnect(signal);
+      });
+    } catch (error) {
+      if (!signal.aborted) {
         this.params.logger.warn("Speakeasy websocket connect failed", {
           error: error instanceof Error ? error.message : String(error),
           reconnectDelayMs: this.reconnectDelayMs
         });
-        await delay(this.reconnectDelayMs, signal).catch(() => undefined);
-        this.reconnectDelayMs = Math.min(this.reconnectDelayMs * 2, 30_000);
+        this.scheduleReconnect(signal);
       }
+    } finally {
+      this.connecting = false;
     }
+  }
+
+  private async handleMessage(
+    socket: WebSocketLike,
+    rawData: string | undefined,
+    onRecoverableGap: (reason: string) => Promise<void>
+  ): Promise<void> {
+    if (!rawData) {
+      return;
+    }
+
+    this.noteSocketActivity(socket);
+
+    const parsed = JSON.parse(String(rawData)) as WebsocketEnvelope;
+    const normalized = normalizeWebsocketMessage({
+      message: parsed,
+      conversationKinds: await this.params.getConversationKinds()
+    });
+
+    if (normalized.kind === "noop") {
+      if ((parsed as { type?: string }).type === "confirm_subscription") {
+        this.params.logger.info("Speakeasy websocket subscribed");
+        this.reconnectDelayMs = 1_000;
+      }
+      return;
+    }
+
+    if (normalized.kind === "event") {
+      await this.params.onEvent(normalized.event);
+      this.reconnectDelayMs = 1_000;
+      return;
+    }
+
+    if (normalized.kind === "recoverable-error") {
+      this.params.logger.warn("Speakeasy websocket requested polling recovery", {
+        code: normalized.code,
+        recovery: normalized.recovery
+      });
+      await onRecoverableGap(normalized.code);
+    }
+  }
+
+  private scheduleReconnect(signal: AbortSignal): void {
+    if (signal.aborted || this.reconnectTimer) {
+      return;
+    }
+
+    const reconnectDelayMs = this.reconnectDelayMs;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = undefined;
+      this.reconnectDelayMs = Math.min(this.reconnectDelayMs * 2, 30_000);
+      void this.connect(signal);
+    }, reconnectDelayMs);
+  }
+
+  private clearReconnectTimer(): void {
+    if (!this.reconnectTimer) {
+      return;
+    }
+
+    clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = undefined;
+  }
+
+  private noteSocketActivity(socket: WebSocketLike): void {
+    if (this.socket !== socket) {
+      return;
+    }
+
+    this.clearHeartbeatWatchdog();
+
+    if (this.params.heartbeatMs <= 0) {
+      return;
+    }
+
+    this.heartbeatTimer = setTimeout(() => {
+      if (this.socket !== socket) {
+        return;
+      }
+
+      this.params.logger.warn("Speakeasy websocket heartbeat timed out", {
+        heartbeatMs: this.params.heartbeatMs
+      });
+      socket.close();
+    }, this.params.heartbeatMs * 2);
+  }
+
+  private clearHeartbeatWatchdog(): void {
+    if (!this.heartbeatTimer) {
+      return;
+    }
+
+    clearTimeout(this.heartbeatTimer);
+    this.heartbeatTimer = undefined;
   }
 
   private resolveWebSocketFactory(): WebSocketCtor {

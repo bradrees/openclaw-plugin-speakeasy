@@ -4,6 +4,7 @@ export class SpeakeasyApiError extends Error {
     status;
     body;
     retryable;
+    retryAfterMs;
     constructor(message, status, body, retryable = false, retryAfterMs) {
         super(message);
         this.status = status;
@@ -34,19 +35,19 @@ export class SpeakeasyApiClient {
         if (!this.refreshPromise) {
             this.refreshPromise = (async () => {
                 const next = await refreshAccessToken({
-            accountId: "runtime",
-            enabled: true,
-            baseUrl: this.options.baseUrl,
-            accessToken: this.options.accessToken,
-            refreshToken: this.options.refreshToken,
-            transport: "polling",
-            cursorStore: { kind: "memory" },
-            allowDirectMessages: true,
-            allowTopicMessages: true,
-            mentionOnly: false,
-            debugLogging: false,
-            pollIntervalMs: 5000,
-            websocketHeartbeatMs: 30000
+                    accountId: "runtime",
+                    enabled: true,
+                    baseUrl: this.options.baseUrl,
+                    accessToken: this.options.accessToken,
+                    refreshToken: this.options.refreshToken,
+                    transport: "polling",
+                    cursorStore: { kind: "memory" },
+                    allowDirectMessages: true,
+                    allowTopicMessages: true,
+                    mentionOnly: false,
+                    debugLogging: false,
+                    pollIntervalMs: 5000,
+                    websocketHeartbeatMs: 30000
                 }, this.fetchImpl);
                 this.options.accessToken = next;
                 this.consecutiveAuthFailures = 0;
@@ -78,8 +79,8 @@ export class SpeakeasyApiClient {
                 });
                 if (!response.ok) {
                     const responseBody = await safeJson(response);
-                    const retryAfterMs = parseRetryAfterMs(response.headers.get("retry-after"));
-                    const retryable = response.status >= 500;
+                    const retryable = response.status >= 500 || response.status === 429;
+                    const retryAfterMs = parseRetryAfterMs(response.headers?.get?.("retry-after") ?? null);
                     throw new SpeakeasyApiError(`Speakeasy request failed: ${init.method ?? "GET"} ${path} -> ${response.status}`, response.status, responseBody, retryable, retryAfterMs);
                 }
                 if (response.status === 204) {
@@ -88,53 +89,45 @@ export class SpeakeasyApiClient {
                 return (await response.json());
             }
             catch (error) {
-                if (error instanceof SpeakeasyApiError && error.status === 401 && this.options.refreshToken && attempt < attempts) {
-                this.options.logger?.warn("Speakeasy access token rejected; attempting refresh", { path });
-                try {
-                    await this.refreshAccessToken();
-                    continue;
-                }
-                catch (refreshError) {
-                    this.options.logger?.warn("Speakeasy access token refresh failed", {
-                        path,
-                        error: refreshError instanceof Error ? refreshError.message : String(refreshError)
-                    });
-                }
-            }
-            if (error instanceof SpeakeasyApiError && error.status === 401) {
-                this.consecutiveAuthFailures += 1;
-                if (this.options.refreshToken && attempt === 1) {
-                    this.options.logger?.warn("Speakeasy access token rejected; attempting refresh", { path });
-                    try {
-                        await this.refreshAccessToken();
-                        continue;
+                if (error instanceof SpeakeasyApiError && error.status === 401) {
+                    this.consecutiveAuthFailures += 1;
+                    if (this.options.refreshToken && attempt === 1) {
+                        this.options.logger?.warn("Speakeasy access token rejected; attempting refresh", { path });
+                        try {
+                            await this.refreshAccessToken();
+                            continue;
+                        }
+                        catch (refreshError) {
+                            this.options.logger?.warn("Speakeasy access token refresh failed", {
+                                path,
+                                error: refreshError instanceof Error ? refreshError.message : String(refreshError)
+                            });
+                        }
                     }
-                    catch (refreshError) {
-                        this.options.logger?.warn("Speakeasy access token refresh failed", {
+                    if (this.consecutiveAuthFailures >= 2) {
+                        this.authCooldownUntil = Date.now() + 60_000;
+                        this.options.logger?.warn("Speakeasy auth entering cooldown after repeated 401 responses", {
                             path,
-                            error: refreshError instanceof Error ? refreshError.message : String(refreshError)
+                            cooldownMs: 60_000,
+                            consecutiveAuthFailures: this.consecutiveAuthFailures
                         });
                     }
                 }
-                if (this.consecutiveAuthFailures >= 2) {
-                    this.authCooldownUntil = Date.now() + 60000;
-                    this.options.logger?.warn("Speakeasy auth entering cooldown after repeated 401 responses", {
-                        path,
-                        cooldownMs: 60000,
-                        consecutiveAuthFailures: this.consecutiveAuthFailures
-                    });
-                }
-            }
-            lastError = error;
+                lastError = error;
                 const retryable = error instanceof SpeakeasyApiError ? error.retryable : error instanceof TypeError;
                 if (!retryable || attempt === attempts) {
                     throw error;
                 }
                 this.options.logger?.warn("retrying Speakeasy API request", {
                     attempt,
-                    path
+                    path,
+                    backoffMs: error instanceof SpeakeasyApiError && error.retryAfterMs !== undefined
+                        ? error.retryAfterMs
+                        : 250 * attempt
                 });
-                await delay(error instanceof SpeakeasyApiError && error.retryAfterMs ? error.retryAfterMs : 250 * attempt, retryOptions.signal);
+                await delay(error instanceof SpeakeasyApiError && error.retryAfterMs !== undefined
+                    ? error.retryAfterMs
+                    : 250 * attempt, retryOptions.signal);
             }
         }
         throw lastError;
@@ -167,12 +160,15 @@ export class SpeakeasyApiClient {
                 profile
             };
         }
+        return this.probeTopicsConnectivity(signal, "GET /api/v1/agent/me was unavailable or rate limited; connectivity verified with GET /api/v1/agent/topics instead.");
+    }
+    async probeTopicsConnectivity(signal, warning) {
         const topics = await this.listTopics(signal);
         const topicCount = Object.keys(topics.records.topics?.data ?? {}).length;
         return {
             endpoint: "agent/topics",
-            degraded: true,
-            warning: "GET /api/v1/agent/me was unavailable or rate limited; connectivity verified with GET /api/v1/agent/topics instead.",
+            degraded: Boolean(warning),
+            ...(warning ? { warning } : {}),
             topicCount
         };
     }
@@ -254,7 +250,7 @@ export class SpeakeasyApiClient {
     }
     pollEvents(cursor, signal) {
         const suffix = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
-        return this.request(`/api/v1/agent/events${suffix}`, { method: "GET" }, { signal });
+        return this.request(`/api/v1/agent/events${suffix}`, { method: "GET" }, { signal, attempts: 1 });
     }
     createDirectUpload(payload, signal) {
         return this.request("/api/v1/files", {
@@ -302,11 +298,12 @@ async function safeJson(response) {
         return undefined;
     }
 }
-//# sourceMappingURL=client.js.map
 function parseRetryAfterMs(value) {
-    if (!value) return undefined;
+    if (!value)
+        return undefined;
     const secs = Number(value);
-    if (Number.isFinite(secs) && secs >= 0) return Math.round(secs * 1000);
+    if (Number.isFinite(secs) && secs >= 0)
+        return Math.round(secs * 1000);
     const at = Date.parse(value);
     if (Number.isFinite(at)) {
         const delta = at - Date.now();
@@ -314,3 +311,4 @@ function parseRetryAfterMs(value) {
     }
     return undefined;
 }
+//# sourceMappingURL=client.js.map

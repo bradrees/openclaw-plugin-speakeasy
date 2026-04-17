@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dedupeEvent, evaluateInboundPolicy, normalizePollingEvents, normalizeWebsocketMessage } from "../src/index.js";
+import { buildConversationId, dedupeEvent, evaluateInboundPolicy, normalizePollingEvents, normalizeWebsocketMessage } from "../src/index.js";
 const baseEnvelope = {
     id: 1,
     event_id: 1,
@@ -31,7 +31,7 @@ describe("events", () => {
         const [event] = normalizePollingEvents([baseEnvelope], {});
         expect(event).toBeDefined();
         expect(event.transport).toBe("polling");
-        expect(event.conversation.conversationId).toBe("topic:10");
+        expect(event.conversation.conversationId).toBe(buildConversationId("10"));
     });
     it("normalizes websocket envelopes", () => {
         const result = normalizeWebsocketMessage({

@@ -21,6 +21,7 @@ export declare function createIdempotencyKey(prefix: string): string;
 export declare function sha256Hex(input: string | Uint8Array): string;
 export declare function stableChecksumBase64(buffer: Uint8Array): string;
 export declare function normalizeId(value: string | number | null | undefined): string | undefined;
+export declare function encodeSpeakeasyCursor(value: string | number | null | undefined): string | undefined;
 export declare function isAbortError(error: unknown): boolean;
 export declare function delay(ms: number, signal?: AbortSignal): Promise<void>;
 //# sourceMappingURL=utils.d.ts.map

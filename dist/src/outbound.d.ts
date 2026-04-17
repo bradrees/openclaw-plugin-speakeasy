@@ -25,6 +25,10 @@ export declare class SpeakeasyOutboundService {
         topicId: string;
         chatId?: string;
     }>;
+    setTyping(params: {
+        topicId: string;
+        typing: boolean;
+    }): Promise<void>;
     edit(params: {
         topicId: string;
         chatId: string;

@@ -3,7 +3,8 @@ export declare class SpeakeasyApiError extends Error {
     readonly status: number;
     readonly body?: unknown | undefined;
     readonly retryable: boolean;
-    constructor(message: string, status: number, body?: unknown | undefined, retryable?: boolean);
+    readonly retryAfterMs?: number | undefined;
+    constructor(message: string, status: number, body?: unknown | undefined, retryable?: boolean, retryAfterMs?: number | undefined);
 }
 type RetryOptions = {
     attempts?: number;
@@ -12,18 +13,25 @@ type RetryOptions = {
 };
 export declare class SpeakeasyApiClient {
     private readonly options;
+    private refreshPromise?;
+    private authCooldownUntil;
+    private consecutiveAuthFailures;
     constructor(options: {
         baseUrl: string;
         accessToken: string;
+        refreshToken?: string;
         fetchImpl?: typeof fetch;
         logger?: LoggerLike;
     });
     get fetchImpl(): typeof fetch;
     get baseUrl(): string;
+    private refreshAccessToken;
     private request;
     getMe(signal?: AbortSignal): Promise<SpeakeasyAgentProfile>;
     getMeIfAvailable(signal?: AbortSignal): Promise<SpeakeasyAgentProfile | undefined>;
     probeConnectivity(signal?: AbortSignal): Promise<SpeakeasyConnectivityProbe>;
+    probeTopicsConnectivity(signal?: AbortSignal, warning?: string): Promise<SpeakeasyConnectivityProbe>;
+    setTyping(topicId: string, typing: boolean, signal?: AbortSignal): Promise<void>;
     updateMe(displayName: string, signal?: AbortSignal): Promise<SpeakeasyAgentProfile>;
     listTopics(signal?: AbortSignal): Promise<SpeakeasyTopicsResponse>;
     getTopic(topicId: string, signal?: AbortSignal): Promise<{

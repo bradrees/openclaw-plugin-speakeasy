@@ -11,6 +11,7 @@ export type SpeakeasyAccountConfig = {
     accessToken: string;
     refreshToken?: string;
     webhookSecret?: string;
+    agentHandle?: string;
     transport: SpeakeasyTransport;
     cursorStore: SpeakeasyCursorStoreConfig;
     allowDirectMessages: boolean;
@@ -141,8 +142,8 @@ export type SpeakeasyConnectivityProbe = {
     profile: SpeakeasyAgentProfile;
 } | {
     endpoint: "agent/topics";
-    degraded: true;
-    warning: string;
+    degraded: boolean;
+    warning?: string;
     topicCount: number;
     profile?: undefined;
 };
@@ -210,6 +211,7 @@ export type SessionConversationResolution = {
 export type CursorState = {
     cursor?: string;
     websocketResumeCursor?: string;
+    agentHandle?: string;
     recentEventIds: string[];
     conversationKinds: Record<string, ConversationKind>;
 };

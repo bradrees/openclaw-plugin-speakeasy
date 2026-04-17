@@ -23,9 +23,9 @@ describe("mapping", () => {
                 spawned_from_chat_id: 12
             }
         });
-        expect(result.conversationId).toBe("topic:99");
-        expect(result.parentConversationId).toBe("topic:42");
-        expect(result.parentConversationCandidates).toEqual(["topic:42"]);
+        expect(result.conversationId).toBe(buildConversationId("99"));
+        expect(result.parentConversationId).toBe(buildConversationId("42"));
+        expect(result.parentConversationCandidates).toEqual([buildConversationId("42")]);
     });
     it("maps direct chats to standalone conversations", () => {
         const result = mapDirectChatToConversation({
@@ -35,7 +35,7 @@ describe("mapping", () => {
             spawned_from_chat_id: null
         });
         expect(result.kind).toBe("direct");
-        expect(result.conversationId).toBe("direct:7");
+        expect(result.conversationId).toBe(buildConversationId("7", "direct"));
     });
 });
 //# sourceMappingURL=mapping.test.js.map

@@ -1,11 +1,15 @@
 import type { CanonicalInboundEvent, LoggerLike } from "./types.js";
 import { SpeakeasyApiClient } from "./client.js";
+type WebSocketEvent = {
+    data?: string;
+    error?: unknown;
+    message?: string;
+};
 type WebSocketLike = {
     close: () => void;
     send: (data: string) => void;
-    addEventListener: (name: string, listener: (event: {
-        data?: string;
-    }) => void) => void;
+    addEventListener: (name: string, listener: (event?: WebSocketEvent) => void) => void;
+    removeEventListener?: (name: string, listener: (event?: WebSocketEvent) => void) => void;
 };
 type WebSocketCtor = new (url: string) => WebSocketLike;
 type WebSocketParams = {
@@ -23,11 +27,19 @@ export declare class SpeakeasyWebSocketConnection {
     private readonly params;
     private abortController?;
     private socket?;
+    private reconnectTimer?;
+    private heartbeatTimer?;
+    private connecting;
     private reconnectDelayMs;
     constructor(params: WebSocketParams);
     start(): Promise<void>;
     stop(): Promise<void>;
     private connect;
+    private handleMessage;
+    private scheduleReconnect;
+    private clearReconnectTimer;
+    private noteSocketActivity;
+    private clearHeartbeatWatchdog;
     private resolveWebSocketFactory;
 }
 export {};
