@@ -42,7 +42,7 @@ function createConnection(overrides: Partial<ConstructorParameters<typeof Speake
     client: {
       baseUrl: "https://speakeasy.example.com"
     } as never,
-    accessToken: "token",
+    getAccessToken: async () => "token",
     logger: {
       debug: () => undefined,
       info: () => undefined,
@@ -100,6 +100,28 @@ describe("websocket", () => {
     await vi.advanceTimersByTimeAsync(1_000);
 
     expect(FakeWebSocket.instances).toHaveLength(2);
+
+    await connection.stop();
+  });
+
+  it("reconnects with the latest access token", async () => {
+    vi.useFakeTimers();
+
+    const getAccessToken = vi
+      .fn<() => Promise<string>>()
+      .mockResolvedValueOnce("token-1")
+      .mockResolvedValueOnce("token-2");
+    const connection = createConnection({
+      getAccessToken
+    });
+    await connection.start();
+
+    expect(FakeWebSocket.instances[0]?.url).toContain("agent_access_token=token-1");
+
+    FakeWebSocket.instances[0]!.close();
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(FakeWebSocket.instances[1]?.url).toContain("agent_access_token=token-2");
 
     await connection.stop();
   });

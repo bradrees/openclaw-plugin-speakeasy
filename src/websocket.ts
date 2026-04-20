@@ -19,7 +19,7 @@ type WebSocketCtor = new (url: string) => WebSocketLike;
 
 type WebSocketParams = {
   client: SpeakeasyApiClient;
-  accessToken: string;
+  getAccessToken: () => Promise<string>;
   logger: LoggerLike;
   heartbeatMs: number;
   getCursor: () => Promise<string | undefined>;
@@ -60,9 +60,10 @@ export class SpeakeasyWebSocketConnection {
 
     try {
       const WebSocketImpl = this.resolveWebSocketFactory();
+      const accessToken = await this.params.getAccessToken();
       const cursor = await this.params.getCursor();
       const url = new URL("/cable", this.params.client.baseUrl);
-      url.searchParams.set("agent_access_token", this.params.accessToken);
+      url.searchParams.set("agent_access_token", accessToken);
       const socket = new WebSocketImpl(url.toString());
       let reconnectFloorMs = 0;
 

@@ -25,7 +25,12 @@ export async function refreshAccessToken(account, fetchImpl = fetch) {
     if (!json.access_token) {
         throw new Error("Speakeasy refresh response did not include access_token");
     }
-    return json.access_token;
+    return {
+        accessToken: json.access_token,
+        refreshToken: json.refresh_token,
+        agentHandle: (typeof json.agent_handle === "string" ? json.agent_handle.trim().toLowerCase() : undefined) ??
+            resolveAgentHandleFromAccessToken(json.access_token)
+    };
 }
 export function decodeSpeakeasyAccessToken(accessToken) {
     const [, payload] = accessToken.split(".");
@@ -46,6 +51,26 @@ export function resolveAgentHandleFromAccessToken(accessToken) {
     const candidate = (typeof payload?.agent_handle === "string" ? payload.agent_handle : undefined) ??
         (typeof payload?.account_handle === "string" ? payload.account_handle : undefined);
     return candidate?.trim().toLowerCase() || undefined;
+}
+export function resolveSpeakeasyAccessTokenExpiry(accessToken) {
+    const payload = decodeSpeakeasyAccessToken(accessToken);
+    if (typeof payload?.expires_at === "string") {
+        const parsed = Date.parse(payload.expires_at);
+        if (Number.isFinite(parsed)) {
+            return parsed;
+        }
+    }
+    if (typeof payload?.exp === "number" && Number.isFinite(payload.exp)) {
+        return payload.exp * 1000;
+    }
+    return undefined;
+}
+export function isSpeakeasyAccessTokenExpired(accessToken, options = {}) {
+    const expiresAt = resolveSpeakeasyAccessTokenExpiry(accessToken);
+    if (expiresAt === undefined) {
+        return false;
+    }
+    return expiresAt <= (options.now ?? Date.now()) + (options.skewMs ?? 30_000);
 }
 export function hasAnySpeakeasyConfiguredState(raw) {
     const cfg = raw;

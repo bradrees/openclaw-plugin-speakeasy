@@ -14,7 +14,7 @@ type WebSocketLike = {
 type WebSocketCtor = new (url: string) => WebSocketLike;
 type WebSocketParams = {
     client: SpeakeasyApiClient;
-    accessToken: string;
+    getAccessToken: () => Promise<string>;
     logger: LoggerLike;
     heartbeatMs: number;
     getCursor: () => Promise<string | undefined>;

@@ -1,4 +1,4 @@
-import type { ResolvedSpeakeasyAccount } from "./types.js";
+import type { ResolvedSpeakeasyAccount, SpeakeasyAuthRefreshResult } from "./types.js";
 
 export function buildAgentAuthHeaders(accessToken: string, extra?: Record<string, string>): HeadersInit {
   return {
@@ -11,7 +11,7 @@ export function buildAgentAuthHeaders(accessToken: string, extra?: Record<string
 export async function refreshAccessToken(
   account: ResolvedSpeakeasyAccount,
   fetchImpl: typeof fetch = fetch
-): Promise<string> {
+): Promise<SpeakeasyAuthRefreshResult> {
   if (!account.refreshToken) {
     throw new Error("Cannot refresh Speakeasy access token without refreshToken");
   }
@@ -30,13 +30,23 @@ export async function refreshAccessToken(
     throw new Error(`Speakeasy refresh failed with HTTP ${response.status}`);
   }
 
-  const json = (await response.json()) as { access_token?: string };
+  const json = (await response.json()) as {
+    access_token?: string;
+    refresh_token?: string;
+    agent_handle?: string;
+  };
 
   if (!json.access_token) {
     throw new Error("Speakeasy refresh response did not include access_token");
   }
 
-  return json.access_token;
+  return {
+    accessToken: json.access_token,
+    refreshToken: json.refresh_token,
+    agentHandle:
+      (typeof json.agent_handle === "string" ? json.agent_handle.trim().toLowerCase() : undefined) ??
+      resolveAgentHandleFromAccessToken(json.access_token)
+  };
 }
 
 export function decodeSpeakeasyAccessToken(accessToken: string): Record<string, unknown> | null {
@@ -62,6 +72,39 @@ export function resolveAgentHandleFromAccessToken(accessToken: string): string |
     (typeof payload?.account_handle === "string" ? payload.account_handle : undefined);
 
   return candidate?.trim().toLowerCase() || undefined;
+}
+
+export function resolveSpeakeasyAccessTokenExpiry(accessToken: string): number | undefined {
+  const payload = decodeSpeakeasyAccessToken(accessToken);
+
+  if (typeof payload?.expires_at === "string") {
+    const parsed = Date.parse(payload.expires_at);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  if (typeof payload?.exp === "number" && Number.isFinite(payload.exp)) {
+    return payload.exp * 1000;
+  }
+
+  return undefined;
+}
+
+export function isSpeakeasyAccessTokenExpired(
+  accessToken: string,
+  options: {
+    now?: number;
+    skewMs?: number;
+  } = {}
+): boolean {
+  const expiresAt = resolveSpeakeasyAccessTokenExpiry(accessToken);
+
+  if (expiresAt === undefined) {
+    return false;
+  }
+
+  return expiresAt <= (options.now ?? Date.now()) + (options.skewMs ?? 30_000);
 }
 
 type OpenClawConfigLike = {

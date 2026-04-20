@@ -16,6 +16,7 @@ export async function runSpeakeasySetup(params: {
   const client = new SpeakeasyApiClient({
     baseUrl: params.account.baseUrl,
     accessToken: params.account.accessToken,
+    refreshToken: params.account.refreshToken,
     logger,
     fetchImpl: params.fetchImpl
   });

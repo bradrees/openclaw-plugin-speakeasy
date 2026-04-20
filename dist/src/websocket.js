@@ -27,9 +27,10 @@ export class SpeakeasyWebSocketConnection {
         this.connecting = true;
         try {
             const WebSocketImpl = this.resolveWebSocketFactory();
+            const accessToken = await this.params.getAccessToken();
             const cursor = await this.params.getCursor();
             const url = new URL("/cable", this.params.client.baseUrl);
-            url.searchParams.set("agent_access_token", this.params.accessToken);
+            url.searchParams.set("agent_access_token", accessToken);
             const socket = new WebSocketImpl(url.toString());
             let reconnectFloorMs = 0;
             this.socket = socket;

@@ -34,7 +34,7 @@ function createConnection(overrides = {}) {
         client: {
             baseUrl: "https://speakeasy.example.com"
         },
-        accessToken: "token",
+        getAccessToken: async () => "token",
         logger: {
             debug: () => undefined,
             info: () => undefined,
@@ -77,6 +77,22 @@ describe("websocket", () => {
         expect(first.closed).toBe(true);
         await vi.advanceTimersByTimeAsync(1_000);
         expect(FakeWebSocket.instances).toHaveLength(2);
+        await connection.stop();
+    });
+    it("reconnects with the latest access token", async () => {
+        vi.useFakeTimers();
+        const getAccessToken = vi
+            .fn()
+            .mockResolvedValueOnce("token-1")
+            .mockResolvedValueOnce("token-2");
+        const connection = createConnection({
+            getAccessToken
+        });
+        await connection.start();
+        expect(FakeWebSocket.instances[0]?.url).toContain("agent_access_token=token-1");
+        FakeWebSocket.instances[0].close();
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(FakeWebSocket.instances[1]?.url).toContain("agent_access_token=token-2");
         await connection.stop();
     });
     it("backs off reconnects while polling catches up from websocket gaps", async () => {

@@ -32,9 +32,9 @@ export declare const speakeasyChannelSchema: z.ZodObject<{
         pollIntervalMs: z.ZodDefault<z.ZodNumber>;
         websocketHeartbeatMs: z.ZodDefault<z.ZodNumber>;
     }, "strip", z.ZodTypeAny, {
+        accessToken: string;
         enabled: boolean;
         baseUrl: string;
-        accessToken: string;
         transport: "websocket" | "polling" | "webhook";
         cursorStore: {
             kind: "file" | "memory";
@@ -47,18 +47,18 @@ export declare const speakeasyChannelSchema: z.ZodObject<{
         pollIntervalMs: number;
         websocketHeartbeatMs: number;
         refreshToken?: string | undefined;
-        webhookSecret?: string | undefined;
         agentHandle?: string | undefined;
+        webhookSecret?: string | undefined;
         allowedTopicIds?: string[] | undefined;
         allowedUserHandles?: string[] | undefined;
         botDisplayName?: string | undefined;
     }, {
-        baseUrl: string;
         accessToken: string;
-        enabled?: boolean | undefined;
+        baseUrl: string;
         refreshToken?: string | undefined;
-        webhookSecret?: string | undefined;
         agentHandle?: string | undefined;
+        enabled?: boolean | undefined;
+        webhookSecret?: string | undefined;
         transport?: "websocket" | "polling" | "webhook" | undefined;
         cursorStore?: {
             kind?: "file" | "memory" | undefined;
@@ -74,9 +74,9 @@ export declare const speakeasyChannelSchema: z.ZodObject<{
         pollIntervalMs?: number | undefined;
         websocketHeartbeatMs?: number | undefined;
     }>, {
+        accessToken: string;
         enabled: boolean;
         baseUrl: string;
-        accessToken: string;
         transport: "websocket" | "polling" | "webhook";
         cursorStore: {
             kind: "file" | "memory";
@@ -89,18 +89,18 @@ export declare const speakeasyChannelSchema: z.ZodObject<{
         pollIntervalMs: number;
         websocketHeartbeatMs: number;
         refreshToken?: string | undefined;
-        webhookSecret?: string | undefined;
         agentHandle?: string | undefined;
+        webhookSecret?: string | undefined;
         allowedTopicIds?: string[] | undefined;
         allowedUserHandles?: string[] | undefined;
         botDisplayName?: string | undefined;
     }, {
-        baseUrl: string;
         accessToken: string;
-        enabled?: boolean | undefined;
+        baseUrl: string;
         refreshToken?: string | undefined;
-        webhookSecret?: string | undefined;
         agentHandle?: string | undefined;
+        enabled?: boolean | undefined;
+        webhookSecret?: string | undefined;
         transport?: "websocket" | "polling" | "webhook" | undefined;
         cursorStore?: {
             kind?: "file" | "memory" | undefined;
@@ -118,9 +118,9 @@ export declare const speakeasyChannelSchema: z.ZodObject<{
     }>>>;
 }, "strip", z.ZodTypeAny, {
     accounts: Record<string, {
+        accessToken: string;
         enabled: boolean;
         baseUrl: string;
-        accessToken: string;
         transport: "websocket" | "polling" | "webhook";
         cursorStore: {
             kind: "file" | "memory";
@@ -133,20 +133,20 @@ export declare const speakeasyChannelSchema: z.ZodObject<{
         pollIntervalMs: number;
         websocketHeartbeatMs: number;
         refreshToken?: string | undefined;
-        webhookSecret?: string | undefined;
         agentHandle?: string | undefined;
+        webhookSecret?: string | undefined;
         allowedTopicIds?: string[] | undefined;
         allowedUserHandles?: string[] | undefined;
         botDisplayName?: string | undefined;
     }>;
 }, {
     accounts?: Record<string, {
-        baseUrl: string;
         accessToken: string;
-        enabled?: boolean | undefined;
+        baseUrl: string;
         refreshToken?: string | undefined;
-        webhookSecret?: string | undefined;
         agentHandle?: string | undefined;
+        enabled?: boolean | undefined;
+        webhookSecret?: string | undefined;
         transport?: "websocket" | "polling" | "webhook" | undefined;
         cursorStore?: {
             kind?: "file" | "memory" | undefined;

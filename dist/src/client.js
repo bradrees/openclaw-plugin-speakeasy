@@ -1,4 +1,4 @@
-import { buildAgentAuthHeaders, refreshAccessToken } from "./auth.js";
+import { buildAgentAuthHeaders, isSpeakeasyAccessTokenExpired, refreshAccessToken } from "./auth.js";
 import { createIdempotencyKey, delay, normalizeId } from "./utils.js";
 export class SpeakeasyApiError extends Error {
     status;
@@ -28,6 +28,19 @@ export class SpeakeasyApiClient {
     get baseUrl() {
         return this.options.baseUrl;
     }
+    get accessToken() {
+        return this.options.accessToken;
+    }
+    async ensureFreshAccessToken(reason) {
+        if (!this.options.refreshToken || !isSpeakeasyAccessTokenExpired(this.options.accessToken)) {
+            return this.options.accessToken;
+        }
+        this.options.logger?.info("Speakeasy access token expired; refreshing before request", {
+            reason
+        });
+        await this.refreshAccessToken();
+        return this.options.accessToken;
+    }
     async refreshAccessToken() {
         if (!this.options.refreshToken) {
             throw new Error("Cannot refresh Speakeasy access token without refreshToken");
@@ -49,11 +62,30 @@ export class SpeakeasyApiClient {
                     pollIntervalMs: 5000,
                     websocketHeartbeatMs: 30000
                 }, this.fetchImpl);
-                this.options.accessToken = next;
+                this.options.accessToken = next.accessToken;
+                this.options.refreshToken = next.refreshToken ?? this.options.refreshToken;
                 this.consecutiveAuthFailures = 0;
                 this.authCooldownUntil = 0;
+                if (this.options.onAuthUpdated) {
+                    try {
+                        await this.options.onAuthUpdated({
+                            accessToken: this.options.accessToken,
+                            refreshToken: this.options.refreshToken,
+                            ...(next.agentHandle ? { agentHandle: next.agentHandle } : {})
+                        });
+                    }
+                    catch (error) {
+                        this.options.logger?.warn("failed to persist refreshed Speakeasy auth", {
+                            error: error instanceof Error ? error.message : String(error)
+                        });
+                    }
+                }
                 this.options.logger?.info("refreshed Speakeasy access token after 401");
-                return next;
+                return {
+                    accessToken: this.options.accessToken,
+                    refreshToken: this.options.refreshToken,
+                    ...(next.agentHandle ? { agentHandle: next.agentHandle } : {})
+                };
             })().finally(() => {
                 this.refreshPromise = undefined;
             });
@@ -68,7 +100,8 @@ export class SpeakeasyApiClient {
                 if (this.authCooldownUntil > Date.now()) {
                     throw new SpeakeasyApiError(`Speakeasy auth cooling down until ${new Date(this.authCooldownUntil).toISOString()}`, 401, undefined, false, this.authCooldownUntil - Date.now());
                 }
-                const headers = buildAgentAuthHeaders(this.options.accessToken, {
+                const accessToken = await this.ensureFreshAccessToken(`${init.method ?? "GET"} ${path}`);
+                const headers = buildAgentAuthHeaders(accessToken, {
                     ...init.headers,
                     ...(retryOptions.idempotencyKey ? { "Idempotency-Key": retryOptions.idempotencyKey } : {})
                 });

@@ -31,6 +31,7 @@ import type {
   CanonicalInboundEvent,
   LoggerLike,
   ResolvedSpeakeasyAccount,
+  SpeakeasyAuthRefreshResult,
   SpeakeasyConnectivityProbe
 } from "./types.js";
 import {
@@ -110,15 +111,86 @@ function createAccountLogger(account: ResolvedSpeakeasyAccount): LoggerLike {
   return createLogger(`account:${account.accountId}`, account.debugLogging);
 }
 
+function applyRefreshedAuthToAccount(account: ResolvedSpeakeasyAccount, auth: SpeakeasyAuthRefreshResult): void {
+  account.accessToken = auth.accessToken;
+  account.refreshToken = auth.refreshToken ?? account.refreshToken;
+  account.agentHandle =
+    auth.agentHandle ??
+    account.agentHandle ??
+    resolveAgentHandleFromAccessToken(auth.accessToken);
+}
+
+async function persistRefreshedAuth(params: {
+  account: ResolvedSpeakeasyAccount;
+  auth: SpeakeasyAuthRefreshResult;
+  logger: LoggerLike;
+}): Promise<void> {
+  applyRefreshedAuthToAccount(params.account, params.auth);
+
+  const runtime = runtimeStore.tryGetRuntime();
+
+  if (!runtime) {
+    return;
+  }
+
+  const currentCfg = runtime.config.loadConfig();
+  const currentAccount = resolveSpeakeasyAccount(
+    currentCfg as unknown as Record<string, unknown>,
+    params.account.accountId
+  );
+  const nextAccount = {
+    ...currentAccount,
+    accessToken: params.account.accessToken,
+    refreshToken: params.account.refreshToken,
+    ...(params.account.agentHandle ? { agentHandle: params.account.agentHandle } : {})
+  };
+
+  if (
+    currentAccount.accessToken === nextAccount.accessToken &&
+    currentAccount.refreshToken === nextAccount.refreshToken &&
+    currentAccount.agentHandle === nextAccount.agentHandle
+  ) {
+    return;
+  }
+
+  await runtime.config.writeConfigFile(
+    writeSpeakeasyAccount(currentCfg as unknown as Record<string, unknown>, nextAccount) as OpenClawConfig
+  );
+
+  params.logger.info("persisted refreshed Speakeasy auth", {
+    accountId: params.account.accountId,
+    refreshTokenRotated: currentAccount.refreshToken !== nextAccount.refreshToken
+  });
+}
+
+function createAccountClient(params: {
+  account: ResolvedSpeakeasyAccount;
+  logger: LoggerLike;
+  fetchImpl?: typeof fetch;
+}): SpeakeasyApiClient {
+  return new SpeakeasyApiClient({
+    baseUrl: params.account.baseUrl,
+    accessToken: params.account.accessToken,
+    refreshToken: params.account.refreshToken,
+    logger: params.logger,
+    ...(params.fetchImpl ? { fetchImpl: params.fetchImpl } : {}),
+    onAuthUpdated: async (auth) => {
+      await persistRefreshedAuth({
+        account: params.account,
+        auth,
+        logger: params.logger
+      });
+    }
+  });
+}
+
 async function buildReplyDeliverer(params: {
   account: ResolvedSpeakeasyAccount;
   event: CanonicalInboundEvent;
   logger: LoggerLike;
 }): Promise<(payload: unknown) => Promise<void>> {
-  const client = new SpeakeasyApiClient({
-    baseUrl: params.account.baseUrl,
-    accessToken: params.account.accessToken,
-    refreshToken: params.account.refreshToken,
+  const client = createAccountClient({
+    account: params.account,
     logger: params.logger
   });
   const outbound = new SpeakeasyOutboundService(client, params.logger);
@@ -278,10 +350,8 @@ async function startAccountRuntime(params: {
   account: ResolvedSpeakeasyAccount;
 }): Promise<RunningTransport> {
   const logger = createAccountLogger(params.account);
-  const client = new SpeakeasyApiClient({
-    baseUrl: params.account.baseUrl,
-    accessToken: params.account.accessToken,
-    refreshToken: params.account.refreshToken,
+  const client = createAccountClient({
+    account: params.account,
     logger
   });
   const store = createCursorStore(params.account);
@@ -390,7 +460,7 @@ async function startAccountRuntime(params: {
   if (params.account.transport === "websocket") {
     websocket = new SpeakeasyWebSocketConnection({
       client,
-      accessToken: params.account.accessToken,
+      getAccessToken: async () => client.ensureFreshAccessToken("websocket-connect"),
       logger,
       heartbeatMs: params.account.websocketHeartbeatMs,
       getCursor: async () => {
@@ -504,10 +574,8 @@ export const speakeasyChannelPlugin = {
   },
   status: {
     probeAccount: async ({ account }) => {
-      const client = new SpeakeasyApiClient({
-        baseUrl: account.baseUrl,
-        accessToken: account.accessToken,
-        refreshToken: account.refreshToken,
+      const client = createAccountClient({
+        account,
         logger: createAccountLogger(account)
       });
       return client.probeTopicsConnectivity();
@@ -553,10 +621,8 @@ export const speakeasyChannelPlugin = {
     deliveryMode: "direct",
     sendText: async (ctx) => {
       const account = resolveSpeakeasyAccount(ctx.cfg as unknown as Record<string, unknown>, ctx.accountId);
-      const client = new SpeakeasyApiClient({
-        baseUrl: account.baseUrl,
-        accessToken: account.accessToken,
-        refreshToken: account.refreshToken,
+      const client = createAccountClient({
+        account,
         logger: createAccountLogger(account)
       });
       const outbound = new SpeakeasyOutboundService(client);
@@ -588,10 +654,8 @@ export const speakeasyChannelPlugin = {
     },
     sendMedia: async (ctx) => {
       const account = resolveSpeakeasyAccount(ctx.cfg as unknown as Record<string, unknown>, ctx.accountId);
-      const client = new SpeakeasyApiClient({
-        baseUrl: account.baseUrl,
-        accessToken: account.accessToken,
-        refreshToken: account.refreshToken,
+      const client = createAccountClient({
+        account,
         logger: createAccountLogger(account)
       });
       const outbound = new SpeakeasyOutboundService(client);

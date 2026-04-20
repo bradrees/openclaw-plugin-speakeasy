@@ -1,4 +1,4 @@
-import type { DirectUploadRequest, DirectUploadResponse, LoggerLike, SpeakeasyConnectivityProbe, SpeakeasyAgentProfile, SpeakeasyChat, SpeakeasyChatWriteInput, SpeakeasyDirectChatCreateRequest, SpeakeasyHistoryResponse, SpeakeasyParticipant, SpeakeasyPollingEventsResponse, SpeakeasyTopic, SpeakeasyTopicsResponse } from "./types.js";
+import type { DirectUploadRequest, DirectUploadResponse, LoggerLike, SpeakeasyAuthRefreshResult, SpeakeasyConnectivityProbe, SpeakeasyAgentProfile, SpeakeasyChat, SpeakeasyChatWriteInput, SpeakeasyDirectChatCreateRequest, SpeakeasyHistoryResponse, SpeakeasyParticipant, SpeakeasyPollingEventsResponse, SpeakeasyTopic, SpeakeasyTopicsResponse } from "./types.js";
 export declare class SpeakeasyApiError extends Error {
     readonly status: number;
     readonly body?: unknown | undefined;
@@ -22,9 +22,12 @@ export declare class SpeakeasyApiClient {
         refreshToken?: string;
         fetchImpl?: typeof fetch;
         logger?: LoggerLike;
+        onAuthUpdated?: (auth: SpeakeasyAuthRefreshResult) => Promise<void> | void;
     });
     get fetchImpl(): typeof fetch;
     get baseUrl(): string;
+    get accessToken(): string;
+    ensureFreshAccessToken(reason: string): Promise<string>;
     private refreshAccessToken;
     private request;
     getMe(signal?: AbortSignal): Promise<SpeakeasyAgentProfile>;

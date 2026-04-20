@@ -1,6 +1,11 @@
 export type SpeakeasyTransport = "websocket" | "polling" | "webhook";
 export type CursorStoreKind = "file" | "memory";
 export type ConversationKind = "topic" | "direct";
+export type SpeakeasyAuthRefreshResult = {
+    accessToken: string;
+    refreshToken?: string;
+    agentHandle?: string;
+};
 export type SpeakeasyCursorStoreConfig = {
     kind: CursorStoreKind;
     path?: string;
