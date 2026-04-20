@@ -6,6 +6,7 @@ export type SpeakeasyAuthRefreshResult = {
   accessToken: string;
   refreshToken?: string;
   agentHandle?: string;
+  expiresAt?: string;
 };
 
 export type SpeakeasyCursorStoreConfig = {
@@ -18,6 +19,7 @@ export type SpeakeasyAccountConfig = {
   baseUrl: string;
   accessToken: string;
   refreshToken?: string;
+  expiresAt?: string;
   webhookSecret?: string;
   agentHandle?: string;
   transport: SpeakeasyTransport;

@@ -1,5 +1,23 @@
 import { describe, expect, it, vi } from "vitest";
-import { runSpeakeasySetup } from "../src/setup.js";
+vi.mock("openclaw/plugin-sdk/core", () => ({
+    buildChannelOutboundSessionRoute: vi.fn(),
+    createChannelPluginBase: vi.fn((plugin) => plugin),
+    defineSetupPluginEntry: vi.fn((plugin) => plugin)
+}));
+vi.mock("openclaw/plugin-sdk/reply-payload", () => ({
+    createNormalizedOutboundDeliverer: vi.fn((deliverer) => deliverer),
+    deliverTextOrMediaReply: vi.fn(async () => undefined)
+}));
+vi.mock("openclaw/plugin-sdk/runtime-store", () => ({
+    createPluginRuntimeStore: vi.fn(() => ({
+        setRuntime: () => undefined,
+        getRuntime: () => {
+            throw new Error("runtime is not available in the setup test");
+        },
+        tryGetRuntime: () => undefined
+    }))
+}));
+const { runSpeakeasySetup } = await import("../src/setup.js");
 describe("setup", () => {
     it("renames the agent when botDisplayName differs", async () => {
         const fetchImpl = vi

@@ -9,6 +9,7 @@ export async function runSpeakeasySetup(params) {
         baseUrl: params.account.baseUrl,
         accessToken: params.account.accessToken,
         refreshToken: params.account.refreshToken,
+        expiresAt: params.account.expiresAt,
         logger,
         fetchImpl: params.fetchImpl
     });

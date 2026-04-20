@@ -4,7 +4,8 @@ export declare class SpeakeasyApiError extends Error {
     readonly body?: unknown | undefined;
     readonly retryable: boolean;
     readonly retryAfterMs?: number | undefined;
-    constructor(message: string, status: number, body?: unknown | undefined, retryable?: boolean, retryAfterMs?: number | undefined);
+    readonly code?: string | undefined;
+    constructor(message: string, status: number, body?: unknown | undefined, retryable?: boolean, retryAfterMs?: number | undefined, code?: string | undefined);
 }
 type RetryOptions = {
     attempts?: number;
@@ -20,6 +21,7 @@ export declare class SpeakeasyApiClient {
         baseUrl: string;
         accessToken: string;
         refreshToken?: string;
+        expiresAt?: string;
         fetchImpl?: typeof fetch;
         logger?: LoggerLike;
         onAuthUpdated?: (auth: SpeakeasyAuthRefreshResult) => Promise<void> | void;
@@ -90,6 +92,8 @@ export declare class SpeakeasyApiClient {
         chat?: SpeakeasyChat;
     }): SpeakeasyChat | undefined;
     topicIdFromTopic(topic: SpeakeasyTopic | undefined): string | undefined;
+    private isRefreshRejected;
+    private enterManualReauthCooldown;
 }
 export {};
 //# sourceMappingURL=client.d.ts.map

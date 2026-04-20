@@ -1,16 +1,19 @@
-import { buildAgentAuthHeaders, isSpeakeasyAccessTokenExpired, refreshAccessToken } from "./auth.js";
+import { SpeakeasyAuthRefreshError, buildAgentAuthHeaders, isSpeakeasyAccessTokenExpired, refreshAccessToken, resolveSpeakeasyAccessTokenExpiryText } from "./auth.js";
 import { createIdempotencyKey, delay, normalizeId } from "./utils.js";
+const AUTH_COOLDOWN_MS = 60_000;
 export class SpeakeasyApiError extends Error {
     status;
     body;
     retryable;
     retryAfterMs;
-    constructor(message, status, body, retryable = false, retryAfterMs) {
+    code;
+    constructor(message, status, body, retryable = false, retryAfterMs, code) {
         super(message);
         this.status = status;
         this.body = body;
         this.retryable = retryable;
         this.retryAfterMs = retryAfterMs;
+        this.code = code;
         this.name = "SpeakeasyApiError";
     }
 }
@@ -32,13 +35,26 @@ export class SpeakeasyApiClient {
         return this.options.accessToken;
     }
     async ensureFreshAccessToken(reason) {
-        if (!this.options.refreshToken || !isSpeakeasyAccessTokenExpired(this.options.accessToken)) {
+        if (!this.options.refreshToken ||
+            !isSpeakeasyAccessTokenExpired(this.options.accessToken, { expiresAt: this.options.expiresAt })) {
             return this.options.accessToken;
         }
         this.options.logger?.info("Speakeasy access token expired; refreshing before request", {
             reason
         });
-        await this.refreshAccessToken();
+        try {
+            await this.refreshAccessToken();
+        }
+        catch (error) {
+            if (this.isRefreshRejected(error)) {
+                throw this.enterManualReauthCooldown({
+                    reason: "refresh rejected by Speakeasy",
+                    trigger: reason,
+                    error
+                });
+            }
+            throw error;
+        }
         return this.options.accessToken;
     }
     async refreshAccessToken() {
@@ -64,6 +80,7 @@ export class SpeakeasyApiClient {
                 }, this.fetchImpl);
                 this.options.accessToken = next.accessToken;
                 this.options.refreshToken = next.refreshToken ?? this.options.refreshToken;
+                this.options.expiresAt = next.expiresAt ?? resolveSpeakeasyAccessTokenExpiryText(next.accessToken);
                 this.consecutiveAuthFailures = 0;
                 this.authCooldownUntil = 0;
                 if (this.options.onAuthUpdated) {
@@ -71,6 +88,7 @@ export class SpeakeasyApiClient {
                         await this.options.onAuthUpdated({
                             accessToken: this.options.accessToken,
                             refreshToken: this.options.refreshToken,
+                            ...(this.options.expiresAt ? { expiresAt: this.options.expiresAt } : {}),
                             ...(next.agentHandle ? { agentHandle: next.agentHandle } : {})
                         });
                     }
@@ -84,6 +102,7 @@ export class SpeakeasyApiClient {
                 return {
                     accessToken: this.options.accessToken,
                     refreshToken: this.options.refreshToken,
+                    ...(this.options.expiresAt ? { expiresAt: this.options.expiresAt } : {}),
                     ...(next.agentHandle ? { agentHandle: next.agentHandle } : {})
                 };
             })().finally(() => {
@@ -98,7 +117,7 @@ export class SpeakeasyApiClient {
         for (let attempt = 1; attempt <= attempts; attempt += 1) {
             try {
                 if (this.authCooldownUntil > Date.now()) {
-                    throw new SpeakeasyApiError(`Speakeasy auth cooling down until ${new Date(this.authCooldownUntil).toISOString()}`, 401, undefined, false, this.authCooldownUntil - Date.now());
+                    throw new SpeakeasyApiError(`Speakeasy auth cooling down until ${new Date(this.authCooldownUntil).toISOString()}`, 401, undefined, false, this.authCooldownUntil - Date.now(), "auth_cooldown");
                 }
                 const accessToken = await this.ensureFreshAccessToken(`${init.method ?? "GET"} ${path}`);
                 const headers = buildAgentAuthHeaders(accessToken, {
@@ -123,6 +142,9 @@ export class SpeakeasyApiClient {
             }
             catch (error) {
                 if (error instanceof SpeakeasyApiError && error.status === 401) {
+                    if (error.code === "manual_reauth_required" || error.code === "auth_cooldown") {
+                        throw error;
+                    }
                     this.consecutiveAuthFailures += 1;
                     if (this.options.refreshToken && attempt === 1) {
                         this.options.logger?.warn("Speakeasy access token rejected; attempting refresh", { path });
@@ -135,13 +157,20 @@ export class SpeakeasyApiClient {
                                 path,
                                 error: refreshError instanceof Error ? refreshError.message : String(refreshError)
                             });
+                            if (this.isRefreshRejected(refreshError)) {
+                                throw this.enterManualReauthCooldown({
+                                    reason: "refresh rejected by Speakeasy",
+                                    path,
+                                    error: refreshError
+                                });
+                            }
                         }
                     }
                     if (this.consecutiveAuthFailures >= 2) {
-                        this.authCooldownUntil = Date.now() + 60_000;
+                        this.authCooldownUntil = Date.now() + AUTH_COOLDOWN_MS;
                         this.options.logger?.warn("Speakeasy auth entering cooldown after repeated 401 responses", {
                             path,
-                            cooldownMs: 60_000,
+                            cooldownMs: AUTH_COOLDOWN_MS,
                             consecutiveAuthFailures: this.consecutiveAuthFailures
                         });
                     }
@@ -321,6 +350,30 @@ export class SpeakeasyApiClient {
     }
     topicIdFromTopic(topic) {
         return normalizeId(topic?.id);
+    }
+    isRefreshRejected(error) {
+        return (error instanceof SpeakeasyAuthRefreshError &&
+            error.status >= 400 &&
+            error.status < 500 &&
+            error.status !== 429);
+    }
+    enterManualReauthCooldown(params) {
+        const status = params.error instanceof SpeakeasyAuthRefreshError ? params.error.status : 401;
+        const message = "Speakeasy automatic auth recovery is unavailable; manual reauth is required";
+        this.authCooldownUntil = Date.now() + AUTH_COOLDOWN_MS;
+        this.consecutiveAuthFailures = 0;
+        this.options.logger?.warn(message, {
+            reason: params.reason,
+            ...(params.path ? { path: params.path } : {}),
+            ...(params.trigger ? { trigger: params.trigger } : {}),
+            status,
+            cooldownMs: AUTH_COOLDOWN_MS
+        });
+        return new SpeakeasyApiError(message, status, {
+            reason: params.reason,
+            ...(params.path ? { path: params.path } : {}),
+            ...(params.trigger ? { trigger: params.trigger } : {})
+        }, false, AUTH_COOLDOWN_MS, "manual_reauth_required");
     }
 }
 async function safeJson(response) {

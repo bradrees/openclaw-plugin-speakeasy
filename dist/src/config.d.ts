@@ -9,6 +9,7 @@ export declare const speakeasyChannelSchema: z.ZodObject<{
         baseUrl: z.ZodEffects<z.ZodString, string, string>;
         accessToken: z.ZodString;
         refreshToken: z.ZodOptional<z.ZodString>;
+        expiresAt: z.ZodOptional<z.ZodString>;
         webhookSecret: z.ZodOptional<z.ZodString>;
         agentHandle: z.ZodOptional<z.ZodString>;
         transport: z.ZodDefault<z.ZodEnum<["websocket", "polling", "webhook"]>>;
@@ -48,6 +49,7 @@ export declare const speakeasyChannelSchema: z.ZodObject<{
         websocketHeartbeatMs: number;
         refreshToken?: string | undefined;
         agentHandle?: string | undefined;
+        expiresAt?: string | undefined;
         webhookSecret?: string | undefined;
         allowedTopicIds?: string[] | undefined;
         allowedUserHandles?: string[] | undefined;
@@ -57,6 +59,7 @@ export declare const speakeasyChannelSchema: z.ZodObject<{
         baseUrl: string;
         refreshToken?: string | undefined;
         agentHandle?: string | undefined;
+        expiresAt?: string | undefined;
         enabled?: boolean | undefined;
         webhookSecret?: string | undefined;
         transport?: "websocket" | "polling" | "webhook" | undefined;
@@ -90,6 +93,7 @@ export declare const speakeasyChannelSchema: z.ZodObject<{
         websocketHeartbeatMs: number;
         refreshToken?: string | undefined;
         agentHandle?: string | undefined;
+        expiresAt?: string | undefined;
         webhookSecret?: string | undefined;
         allowedTopicIds?: string[] | undefined;
         allowedUserHandles?: string[] | undefined;
@@ -99,6 +103,7 @@ export declare const speakeasyChannelSchema: z.ZodObject<{
         baseUrl: string;
         refreshToken?: string | undefined;
         agentHandle?: string | undefined;
+        expiresAt?: string | undefined;
         enabled?: boolean | undefined;
         webhookSecret?: string | undefined;
         transport?: "websocket" | "polling" | "webhook" | undefined;
@@ -134,6 +139,7 @@ export declare const speakeasyChannelSchema: z.ZodObject<{
         websocketHeartbeatMs: number;
         refreshToken?: string | undefined;
         agentHandle?: string | undefined;
+        expiresAt?: string | undefined;
         webhookSecret?: string | undefined;
         allowedTopicIds?: string[] | undefined;
         allowedUserHandles?: string[] | undefined;
@@ -145,6 +151,7 @@ export declare const speakeasyChannelSchema: z.ZodObject<{
         baseUrl: string;
         refreshToken?: string | undefined;
         agentHandle?: string | undefined;
+        expiresAt?: string | undefined;
         enabled?: boolean | undefined;
         webhookSecret?: string | undefined;
         transport?: "websocket" | "polling" | "webhook" | undefined;
@@ -187,6 +194,9 @@ export declare const SPEAKEASY_CHANNEL_JSON_SCHEMA: {
                         readonly minLength: 1;
                     };
                     readonly refreshToken: {
+                        readonly type: "string";
+                    };
+                    readonly expiresAt: {
                         readonly type: "string";
                     };
                     readonly webhookSecret: {

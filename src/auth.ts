@@ -1,9 +1,21 @@
 import type { ResolvedSpeakeasyAccount, SpeakeasyAuthRefreshResult } from "./types.js";
 
+export class SpeakeasyAuthRefreshError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly body?: unknown
+  ) {
+    super(message);
+    this.name = "SpeakeasyAuthRefreshError";
+  }
+}
+
 export function buildAgentAuthHeaders(accessToken: string, extra?: Record<string, string>): HeadersInit {
   return {
     "Content-Type": "application/json",
     "X-AUTH-TOKEN": accessToken,
+    Authorization: `Bearer ${accessToken}`,
     ...extra
   };
 }
@@ -18,22 +30,25 @@ export async function refreshAccessToken(
 
   const response = await fetchImpl(new URL("/api/v1/agent_sessions/refresh", account.baseUrl), {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
+    headers: buildAgentAuthHeaders(account.accessToken),
     body: JSON.stringify({
       refresh_token: account.refreshToken
     })
   });
 
   if (!response.ok) {
-    throw new Error(`Speakeasy refresh failed with HTTP ${response.status}`);
+    throw new SpeakeasyAuthRefreshError(
+      `Speakeasy refresh failed: POST /api/v1/agent_sessions/refresh -> ${response.status}`,
+      response.status,
+      await safeJson(response)
+    );
   }
 
   const json = (await response.json()) as {
     access_token?: string;
     refresh_token?: string;
     agent_handle?: string;
+    expires_at?: string;
   };
 
   if (!json.access_token) {
@@ -43,6 +58,8 @@ export async function refreshAccessToken(
   return {
     accessToken: json.access_token,
     refreshToken: json.refresh_token,
+    expiresAt:
+      normalizeSpeakeasyTimestamp(json.expires_at) ?? resolveSpeakeasyAccessTokenExpiryText(json.access_token),
     agentHandle:
       (typeof json.agent_handle === "string" ? json.agent_handle.trim().toLowerCase() : undefined) ??
       resolveAgentHandleFromAccessToken(json.access_token)
@@ -74,21 +91,38 @@ export function resolveAgentHandleFromAccessToken(accessToken: string): string |
   return candidate?.trim().toLowerCase() || undefined;
 }
 
-export function resolveSpeakeasyAccessTokenExpiry(accessToken: string): number | undefined {
+export function resolveSpeakeasyAccessTokenExpiry(
+  accessToken: string,
+  fallbackExpiresAt?: string
+): number | undefined {
   const payload = decodeSpeakeasyAccessToken(accessToken);
 
   if (typeof payload?.expires_at === "string") {
-    const parsed = Date.parse(payload.expires_at);
-    if (Number.isFinite(parsed)) {
-      return parsed;
-    }
+    return parseSpeakeasyTimestamp(payload.expires_at);
   }
 
   if (typeof payload?.exp === "number" && Number.isFinite(payload.exp)) {
     return payload.exp * 1000;
   }
 
-  return undefined;
+  return parseSpeakeasyTimestamp(fallbackExpiresAt);
+}
+
+export function resolveSpeakeasyAccessTokenExpiryText(
+  accessToken: string,
+  fallbackExpiresAt?: string
+): string | undefined {
+  const payload = decodeSpeakeasyAccessToken(accessToken);
+
+  if (typeof payload?.expires_at === "string") {
+    return normalizeSpeakeasyTimestamp(payload.expires_at);
+  }
+
+  if (typeof payload?.exp === "number" && Number.isFinite(payload.exp)) {
+    return new Date(payload.exp * 1000).toISOString();
+  }
+
+  return normalizeSpeakeasyTimestamp(fallbackExpiresAt);
 }
 
 export function isSpeakeasyAccessTokenExpired(
@@ -96,9 +130,10 @@ export function isSpeakeasyAccessTokenExpired(
   options: {
     now?: number;
     skewMs?: number;
+    expiresAt?: string;
   } = {}
 ): boolean {
-  const expiresAt = resolveSpeakeasyAccessTokenExpiry(accessToken);
+  const expiresAt = resolveSpeakeasyAccessTokenExpiry(accessToken, options.expiresAt);
 
   if (expiresAt === undefined) {
     return false;
@@ -127,4 +162,25 @@ export function hasAnySpeakeasyAuth(raw: unknown): boolean {
   const accounts = cfg.channels?.speakeasy?.accounts ?? {};
 
   return Object.values(accounts).some((account) => Boolean(account.accessToken));
+}
+
+async function safeJson(response: Response): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch {
+    return undefined;
+  }
+}
+
+function parseSpeakeasyTimestamp(value: string | undefined): number | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function normalizeSpeakeasyTimestamp(value: string | undefined): string | undefined {
+  return parseSpeakeasyTimestamp(value) === undefined ? undefined : value?.trim();
 }

@@ -20,7 +20,7 @@ import {
   validateSpeakeasyAccount,
   writeSpeakeasyAccount
 } from "./config.js";
-import { resolveAgentHandleFromAccessToken } from "./auth.js";
+import { resolveAgentHandleFromAccessToken, resolveSpeakeasyAccessTokenExpiryText } from "./auth.js";
 import { SpeakeasyApiClient } from "./client.js";
 import { dedupeEvent, normalizeWebhookEvent, verifyWebhookSignature } from "./events.js";
 import { inferOutboundTarget, SpeakeasyOutboundService } from "./outbound.js";
@@ -65,6 +65,16 @@ const runningTransports = new Map<string, RunningTransport>();
 
 export function setSpeakeasyRuntime(runtime: PluginRuntime): void {
   runtimeStore.setRuntime(runtime);
+}
+
+function waitForAbort(signal: AbortSignal): Promise<void> {
+  if (signal.aborted) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    signal.addEventListener("abort", () => resolve(), { once: true });
+  });
 }
 
 export async function handleSpeakeasyWebhookRoute(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
@@ -114,6 +124,10 @@ function createAccountLogger(account: ResolvedSpeakeasyAccount): LoggerLike {
 function applyRefreshedAuthToAccount(account: ResolvedSpeakeasyAccount, auth: SpeakeasyAuthRefreshResult): void {
   account.accessToken = auth.accessToken;
   account.refreshToken = auth.refreshToken ?? account.refreshToken;
+  account.expiresAt =
+    auth.expiresAt ??
+    resolveSpeakeasyAccessTokenExpiryText(auth.accessToken, account.expiresAt) ??
+    account.expiresAt;
   account.agentHandle =
     auth.agentHandle ??
     account.agentHandle ??
@@ -142,12 +156,14 @@ async function persistRefreshedAuth(params: {
     ...currentAccount,
     accessToken: params.account.accessToken,
     refreshToken: params.account.refreshToken,
+    ...(params.account.expiresAt ? { expiresAt: params.account.expiresAt } : {}),
     ...(params.account.agentHandle ? { agentHandle: params.account.agentHandle } : {})
   };
 
   if (
     currentAccount.accessToken === nextAccount.accessToken &&
     currentAccount.refreshToken === nextAccount.refreshToken &&
+    currentAccount.expiresAt === nextAccount.expiresAt &&
     currentAccount.agentHandle === nextAccount.agentHandle
   ) {
     return;
@@ -172,6 +188,7 @@ function createAccountClient(params: {
     baseUrl: params.account.baseUrl,
     accessToken: params.account.accessToken,
     refreshToken: params.account.refreshToken,
+    expiresAt: params.account.expiresAt,
     logger: params.logger,
     ...(params.fetchImpl ? { fetchImpl: params.fetchImpl } : {}),
     onAuthUpdated: async (auth) => {
@@ -529,9 +546,20 @@ export const speakeasyChannelPlugin = {
     configSchema: SPEAKEASY_CHANNEL_JSON_SCHEMA as never,
     setup: {
       applyAccountConfig: ({ cfg, accountId, input }) => {
+        const authInput = input as typeof input & { refreshToken?: string };
+        const currentAccount =
+          ((cfg as unknown as {
+            channels?: {
+              speakeasy?: {
+                accounts?: Record<string, Record<string, unknown>>;
+              };
+            };
+          }).channels?.speakeasy?.accounts?.[accountId] ?? {}) as Record<string, unknown>;
         const validation = validateSpeakeasyAccount({
+          ...currentAccount,
           baseUrl: input.url,
           accessToken: input.accessToken ?? input.token,
+          ...(authInput.refreshToken ? { refreshToken: authInput.refreshToken } : {}),
           botDisplayName: input.name
         });
 
@@ -603,13 +631,31 @@ export const speakeasyChannelPlugin = {
     }
   },
   gateway: {
-    startAccount: async ({ cfg, accountId }) => {
+    startAccount: async ({ cfg, accountId, abortSignal }) => {
       const account = resolveSpeakeasyAccount(cfg as unknown as Record<string, unknown>, accountId);
+      const existing = runningTransports.get(account.accountId);
+
+      if (existing) {
+        await existing.stop();
+        runningTransports.delete(account.accountId);
+      }
+
       const running = await startAccountRuntime({
         cfg,
         account
       });
       runningTransports.set(account.accountId, running);
+
+      if (!abortSignal) {
+        return;
+      }
+
+      await waitForAbort(abortSignal);
+
+      if (runningTransports.get(account.accountId) === running) {
+        await running.stop();
+        runningTransports.delete(account.accountId);
+      }
     },
     stopAccount: async ({ accountId }) => {
       const running = runningTransports.get(accountId);

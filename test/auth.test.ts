@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { isSpeakeasyAccessTokenExpired } from "../src/auth.js";
+import { isSpeakeasyAccessTokenExpired, refreshAccessToken } from "../src/auth.js";
 import { SpeakeasyApiClient } from "../src/client.js";
 
 function createAccessToken(expiresAt: string, extra: Record<string, unknown> = {}): string {
@@ -36,6 +36,60 @@ describe("auth", () => {
 
     expect(isSpeakeasyAccessTokenExpired(expiredToken, { now, skewMs: 0 })).toBe(true);
     expect(isSpeakeasyAccessTokenExpired(freshToken, { now, skewMs: 0 })).toBe(false);
+  });
+
+  it("sends the current access token while refreshing", async () => {
+    const nextToken = createAccessToken("2026-04-20T00:10:00Z", {
+      agent_handle: "agent@example.com"
+    });
+    const fetchImpl = vi.fn(async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url = input instanceof URL ? input : new URL(String(input));
+
+      expect(url.pathname).toBe("/api/v1/agent_sessions/refresh");
+      expect(init).toEqual(
+        expect.objectContaining({
+          method: "POST",
+          headers: expect.objectContaining({
+            "Content-Type": "application/json",
+            "X-AUTH-TOKEN": "current-access-token",
+            Authorization: "Bearer current-access-token"
+          }),
+          body: JSON.stringify({
+            refresh_token: "refresh-token"
+          })
+        })
+      );
+
+      return jsonResponse(200, {
+        access_token: nextToken,
+        refresh_token: "next-refresh-token",
+        agent_handle: "agent@example.com",
+        expires_at: "2026-04-20T00:10:00Z"
+      });
+    });
+
+    const result = await refreshAccessToken({
+      accountId: "default",
+      enabled: true,
+      baseUrl: "https://example.com",
+      accessToken: "current-access-token",
+      refreshToken: "refresh-token",
+      transport: "polling",
+      cursorStore: { kind: "memory" },
+      allowDirectMessages: true,
+      allowTopicMessages: true,
+      mentionOnly: false,
+      debugLogging: false,
+      pollIntervalMs: 5000,
+      websocketHeartbeatMs: 30000
+    }, fetchImpl as unknown as typeof fetch);
+
+    expect(result).toEqual({
+      accessToken: nextToken,
+      refreshToken: "next-refresh-token",
+      agentHandle: "agent@example.com",
+      expiresAt: "2026-04-20T00:10:00Z"
+    });
   });
 
   it("refreshes with rotated refresh tokens across repeated expiries", async () => {
@@ -108,6 +162,7 @@ describe("auth", () => {
     expect(onAuthUpdated).toHaveBeenNthCalledWith(1, {
       accessToken: firstRefreshToken,
       refreshToken: "refresh-2",
+      expiresAt: "2026-04-20T00:00:45Z",
       agentHandle: "agent@example.com"
     });
 
@@ -119,6 +174,7 @@ describe("auth", () => {
     expect(onAuthUpdated).toHaveBeenNthCalledWith(2, {
       accessToken: secondRefreshToken,
       refreshToken: "refresh-3",
+      expiresAt: "2026-04-20T00:10:00Z",
       agentHandle: "agent@example.com"
     });
   });

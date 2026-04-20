@@ -47,7 +47,13 @@
               "refreshToken": {
                 "type": "string"
               },
+              "expiresAt": {
+                "type": "string"
+              },
               "webhookSecret": {
+                "type": "string"
+              },
+              "agentHandle": {
                 "type": "string"
               },
               "transport": {

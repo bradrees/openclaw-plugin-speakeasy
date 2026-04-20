@@ -1,3 +1,4 @@
+import { SpeakeasyApiError } from "./client.js";
 import { normalizeWebsocketMessage } from "./events.js";
 export class SpeakeasyWebSocketConnection {
     params;
@@ -83,6 +84,13 @@ export class SpeakeasyWebSocketConnection {
         }
         catch (error) {
             if (!signal.aborted) {
+                if (error instanceof SpeakeasyApiError && error.status === 401 && !error.retryable) {
+                    this.params.logger.warn("Speakeasy websocket reconnect paused until auth is updated", {
+                        error: error.message,
+                        retryAfterMs: error.retryAfterMs
+                    });
+                    return;
+                }
                 this.params.logger.warn("Speakeasy websocket connect failed", {
                     error: error instanceof Error ? error.message : String(error),
                     reconnectDelayMs: this.reconnectDelayMs

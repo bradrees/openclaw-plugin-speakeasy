@@ -14,8 +14,16 @@ import type {
   SpeakeasyTopic,
   SpeakeasyTopicsResponse
 } from "./types.js";
-import { buildAgentAuthHeaders, isSpeakeasyAccessTokenExpired, refreshAccessToken } from "./auth.js";
+import {
+  SpeakeasyAuthRefreshError,
+  buildAgentAuthHeaders,
+  isSpeakeasyAccessTokenExpired,
+  refreshAccessToken,
+  resolveSpeakeasyAccessTokenExpiryText
+} from "./auth.js";
 import { createIdempotencyKey, delay, normalizeId } from "./utils.js";
+
+const AUTH_COOLDOWN_MS = 60_000;
 
 export class SpeakeasyApiError extends Error {
   constructor(
@@ -23,7 +31,8 @@ export class SpeakeasyApiError extends Error {
     readonly status: number,
     readonly body?: unknown,
     readonly retryable = false,
-    readonly retryAfterMs?: number
+    readonly retryAfterMs?: number,
+    readonly code?: string
   ) {
     super(message);
     this.name = "SpeakeasyApiError";
@@ -46,6 +55,7 @@ export class SpeakeasyApiClient {
       baseUrl: string;
       accessToken: string;
       refreshToken?: string;
+      expiresAt?: string;
       fetchImpl?: typeof fetch;
       logger?: LoggerLike;
       onAuthUpdated?: (auth: SpeakeasyAuthRefreshResult) => Promise<void> | void;
@@ -65,14 +75,30 @@ export class SpeakeasyApiClient {
   }
 
   async ensureFreshAccessToken(reason: string): Promise<string> {
-    if (!this.options.refreshToken || !isSpeakeasyAccessTokenExpired(this.options.accessToken)) {
+    if (
+      !this.options.refreshToken ||
+      !isSpeakeasyAccessTokenExpired(this.options.accessToken, { expiresAt: this.options.expiresAt })
+    ) {
       return this.options.accessToken;
     }
 
     this.options.logger?.info("Speakeasy access token expired; refreshing before request", {
       reason
     });
-    await this.refreshAccessToken();
+    try {
+      await this.refreshAccessToken();
+    } catch (error) {
+      if (this.isRefreshRejected(error)) {
+        throw this.enterManualReauthCooldown({
+          reason: "refresh rejected by Speakeasy",
+          trigger: reason,
+          error
+        });
+      }
+
+      throw error;
+    }
+
     return this.options.accessToken;
   }
 
@@ -101,6 +127,7 @@ export class SpeakeasyApiClient {
 
         this.options.accessToken = next.accessToken;
         this.options.refreshToken = next.refreshToken ?? this.options.refreshToken;
+        this.options.expiresAt = next.expiresAt ?? resolveSpeakeasyAccessTokenExpiryText(next.accessToken);
         this.consecutiveAuthFailures = 0;
         this.authCooldownUntil = 0;
         if (this.options.onAuthUpdated) {
@@ -108,6 +135,7 @@ export class SpeakeasyApiClient {
             await this.options.onAuthUpdated({
               accessToken: this.options.accessToken,
               refreshToken: this.options.refreshToken,
+              ...(this.options.expiresAt ? { expiresAt: this.options.expiresAt } : {}),
               ...(next.agentHandle ? { agentHandle: next.agentHandle } : {})
             });
           } catch (error) {
@@ -120,6 +148,7 @@ export class SpeakeasyApiClient {
         return {
           accessToken: this.options.accessToken,
           refreshToken: this.options.refreshToken,
+          ...(this.options.expiresAt ? { expiresAt: this.options.expiresAt } : {}),
           ...(next.agentHandle ? { agentHandle: next.agentHandle } : {})
         };
       })().finally(() => {
@@ -146,7 +175,8 @@ export class SpeakeasyApiClient {
             401,
             undefined,
             false,
-            this.authCooldownUntil - Date.now()
+            this.authCooldownUntil - Date.now(),
+            "auth_cooldown"
           );
         }
         const accessToken = await this.ensureFreshAccessToken(`${init.method ?? "GET"} ${path}`);
@@ -180,6 +210,10 @@ export class SpeakeasyApiClient {
         return (await response.json()) as T;
       } catch (error) {
         if (error instanceof SpeakeasyApiError && error.status === 401) {
+          if (error.code === "manual_reauth_required" || error.code === "auth_cooldown") {
+            throw error;
+          }
+
           this.consecutiveAuthFailures += 1;
 
           if (this.options.refreshToken && attempt === 1) {
@@ -192,14 +226,22 @@ export class SpeakeasyApiClient {
                 path,
                 error: refreshError instanceof Error ? refreshError.message : String(refreshError)
               });
+
+              if (this.isRefreshRejected(refreshError)) {
+                throw this.enterManualReauthCooldown({
+                  reason: "refresh rejected by Speakeasy",
+                  path,
+                  error: refreshError
+                });
+              }
             }
           }
 
           if (this.consecutiveAuthFailures >= 2) {
-            this.authCooldownUntil = Date.now() + 60_000;
+            this.authCooldownUntil = Date.now() + AUTH_COOLDOWN_MS;
             this.options.logger?.warn("Speakeasy auth entering cooldown after repeated 401 responses", {
               path,
-              cooldownMs: 60_000,
+              cooldownMs: AUTH_COOLDOWN_MS,
               consecutiveAuthFailures: this.consecutiveAuthFailures
             });
           }
@@ -464,6 +506,50 @@ export class SpeakeasyApiClient {
 
   topicIdFromTopic(topic: SpeakeasyTopic | undefined): string | undefined {
     return normalizeId(topic?.id);
+  }
+
+  private isRefreshRejected(error: unknown): error is SpeakeasyAuthRefreshError {
+    return (
+      error instanceof SpeakeasyAuthRefreshError &&
+      error.status >= 400 &&
+      error.status < 500 &&
+      error.status !== 429
+    );
+  }
+
+  private enterManualReauthCooldown(params: {
+    reason: string;
+    path?: string;
+    trigger?: string;
+    error?: unknown;
+  }): SpeakeasyApiError {
+    const status =
+      params.error instanceof SpeakeasyAuthRefreshError ? params.error.status : 401;
+    const message = "Speakeasy automatic auth recovery is unavailable; manual reauth is required";
+
+    this.authCooldownUntil = Date.now() + AUTH_COOLDOWN_MS;
+    this.consecutiveAuthFailures = 0;
+
+    this.options.logger?.warn(message, {
+      reason: params.reason,
+      ...(params.path ? { path: params.path } : {}),
+      ...(params.trigger ? { trigger: params.trigger } : {}),
+      status,
+      cooldownMs: AUTH_COOLDOWN_MS
+    });
+
+    return new SpeakeasyApiError(
+      message,
+      status,
+      {
+        reason: params.reason,
+        ...(params.path ? { path: params.path } : {}),
+        ...(params.trigger ? { trigger: params.trigger } : {})
+      },
+      false,
+      AUTH_COOLDOWN_MS,
+      "manual_reauth_required"
+    );
   }
 }
 

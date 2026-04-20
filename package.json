@@ -42,7 +42,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "vitest run --config ./vitest.config.ts",
+    "test": "node ./scripts/run-vitest.mjs run --config ./vitest.config.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "prepare": "tsc -p tsconfig.json"
   },

@@ -1,5 +1,5 @@
 import type { CanonicalInboundEvent, LoggerLike } from "./types.js";
-import { SpeakeasyApiClient } from "./client.js";
+import { SpeakeasyApiClient, SpeakeasyApiError } from "./client.js";
 import { normalizeWebsocketMessage, type WebsocketEnvelope } from "./events.js";
 
 type WebSocketEvent = {
@@ -127,6 +127,14 @@ export class SpeakeasyWebSocketConnection {
       });
     } catch (error) {
       if (!signal.aborted) {
+        if (error instanceof SpeakeasyApiError && error.status === 401 && !error.retryable) {
+          this.params.logger.warn("Speakeasy websocket reconnect paused until auth is updated", {
+            error: error.message,
+            retryAfterMs: error.retryAfterMs
+          });
+          return;
+        }
+
         this.params.logger.warn("Speakeasy websocket connect failed", {
           error: error instanceof Error ? error.message : String(error),
           reconnectDelayMs: this.reconnectDelayMs
