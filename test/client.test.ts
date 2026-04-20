@@ -190,6 +190,48 @@ describe("client auth", () => {
     );
   });
 
+  it("syncs newer auth state before requests so stale clients do not reuse rotated refresh tokens", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        records: {
+          topics: {
+            data: {}
+          }
+        }
+      })
+    });
+
+    const client = new SpeakeasyApiClient({
+      baseUrl: "https://speakeasy.example.com",
+      accessToken: createJwt(-60_000),
+      refreshToken: "stale-refresh-token",
+      expiresAt: "2026-04-19T23:59:00Z",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      logger: createLogger(),
+      syncAuthState: async () => ({
+        accessToken: "fresh-access-token",
+        refreshToken: "fresh-refresh-token",
+        expiresAt: "2099-04-20T00:10:00Z"
+      })
+    });
+
+    await client.listTopics();
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      new URL("/api/v1/agent/topics", "https://speakeasy.example.com"),
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({
+          "X-AUTH-TOKEN": "fresh-access-token",
+          Authorization: "Bearer fresh-access-token"
+        })
+      })
+    );
+  });
+
   it("retries the request after a 401 and stores rotated refresh state", async () => {
     const logger = createLogger();
     const fetchImpl = vi

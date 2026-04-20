@@ -25,10 +25,22 @@ export declare class SpeakeasyApiClient {
         fetchImpl?: typeof fetch;
         logger?: LoggerLike;
         onAuthUpdated?: (auth: SpeakeasyAuthRefreshResult) => Promise<void> | void;
+        syncAuthState?: () => Promise<{
+            accessToken: string;
+            refreshToken?: string;
+            expiresAt?: string;
+            agentHandle?: string;
+        } | undefined> | {
+            accessToken: string;
+            refreshToken?: string;
+            expiresAt?: string;
+            agentHandle?: string;
+        } | undefined;
     });
     get fetchImpl(): typeof fetch;
     get baseUrl(): string;
     get accessToken(): string;
+    private syncAuthState;
     ensureFreshAccessToken(reason: string): Promise<string>;
     private refreshAccessToken;
     private request;

@@ -74,7 +74,7 @@ function applyRefreshedAuthToAccount(account, auth) {
 }
 async function persistRefreshedAuth(params) {
     applyRefreshedAuthToAccount(params.account, params.auth);
-    const runtime = runtimeStore.tryGetRuntime();
+    const runtime = runtimeStore.tryGetRuntime?.() ?? null;
     if (!runtime) {
         return;
     }
@@ -107,6 +107,38 @@ function createAccountClient(params) {
         expiresAt: params.account.expiresAt,
         logger: params.logger,
         ...(params.fetchImpl ? { fetchImpl: params.fetchImpl } : {}),
+        syncAuthState: () => {
+            const runtime = runtimeStore.tryGetRuntime?.() ?? null;
+            if (!runtime) {
+                return {
+                    accessToken: params.account.accessToken,
+                    refreshToken: params.account.refreshToken,
+                    expiresAt: params.account.expiresAt,
+                    ...(params.account.agentHandle ? { agentHandle: params.account.agentHandle } : {})
+                };
+            }
+            try {
+                const latest = resolveSpeakeasyAccount(runtime.config.loadConfig(), params.account.accountId);
+                params.account.accessToken = latest.accessToken;
+                params.account.refreshToken = latest.refreshToken;
+                params.account.expiresAt = latest.expiresAt;
+                params.account.agentHandle = latest.agentHandle;
+                return {
+                    accessToken: latest.accessToken,
+                    refreshToken: latest.refreshToken,
+                    expiresAt: latest.expiresAt,
+                    ...(latest.agentHandle ? { agentHandle: latest.agentHandle } : {})
+                };
+            }
+            catch {
+                return {
+                    accessToken: params.account.accessToken,
+                    refreshToken: params.account.refreshToken,
+                    expiresAt: params.account.expiresAt,
+                    ...(params.account.agentHandle ? { agentHandle: params.account.agentHandle } : {})
+                };
+            }
+        },
         onAuthUpdated: async (auth) => {
             await persistRefreshedAuth({
                 account: params.account,

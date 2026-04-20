@@ -59,6 +59,23 @@ export class SpeakeasyApiClient {
       fetchImpl?: typeof fetch;
       logger?: LoggerLike;
       onAuthUpdated?: (auth: SpeakeasyAuthRefreshResult) => Promise<void> | void;
+      syncAuthState?: () =>
+        | Promise<
+            | {
+                accessToken: string;
+                refreshToken?: string;
+                expiresAt?: string;
+                agentHandle?: string;
+              }
+            | undefined
+          >
+        | {
+            accessToken: string;
+            refreshToken?: string;
+            expiresAt?: string;
+            agentHandle?: string;
+          }
+        | undefined;
     }
   ) {}
 
@@ -74,7 +91,29 @@ export class SpeakeasyApiClient {
     return this.options.accessToken;
   }
 
+  private async syncAuthState(): Promise<void> {
+    const next = await this.options.syncAuthState?.();
+
+    if (!next) {
+      return;
+    }
+
+    const credentialsChanged =
+      next.accessToken !== this.options.accessToken || next.refreshToken !== this.options.refreshToken;
+
+    this.options.accessToken = next.accessToken;
+    this.options.refreshToken = next.refreshToken;
+    this.options.expiresAt = next.expiresAt;
+
+    if (credentialsChanged) {
+      this.consecutiveAuthFailures = 0;
+      this.authCooldownUntil = 0;
+    }
+  }
+
   async ensureFreshAccessToken(reason: string): Promise<string> {
+    await this.syncAuthState();
+
     if (
       !this.options.refreshToken ||
       !isSpeakeasyAccessTokenExpired(this.options.accessToken, { expiresAt: this.options.expiresAt })
@@ -103,6 +142,8 @@ export class SpeakeasyApiClient {
   }
 
   private async refreshAccessToken(): Promise<SpeakeasyAuthRefreshResult> {
+    await this.syncAuthState();
+
     if (!this.options.refreshToken) {
       throw new Error("Cannot refresh Speakeasy access token without refreshToken");
     }
@@ -169,6 +210,8 @@ export class SpeakeasyApiClient {
 
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
       try {
+        await this.syncAuthState();
+
         if (this.authCooldownUntil > Date.now()) {
           throw new SpeakeasyApiError(
             `Speakeasy auth cooling down until ${new Date(this.authCooldownUntil).toISOString()}`,
