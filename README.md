@@ -97,13 +97,31 @@ The package works without any public inbound URL because websocket and polling a
 - parent topic fallback is exposed through `parentConversationId` and `parentConversationCandidates`.
 - provider metadata retains `topic_id`, `parent_topic_id`, `root_topic_id`, and `spawned_from_chat_id`.
 
+## OpenClaw integration surfaces
+
+The plugin exposes Speakeasy topic discovery through normal OpenClaw channel surfaces instead of a plugin-specific helper:
+
+- `directory.listGroupsLive` is the primary live topic listing surface. It returns explicit OpenClaw targets such as `topic:42` and `direct:7`.
+- `resolver.resolveTargets` resolves bare topic ids plus friendly topic/DM labels back into those explicit targets for CLI and tool flows.
+- `messaging.targetResolver` handles post-directory normalization for explicit `topic:` / `direct:` ids and bare numeric topic ids.
+- inbound session labeling uses the same topic metadata helpers, so OpenClaw session/context surfaces see the same DM-aware labels that directory and resolver flows expose.
+
+This is the best current plugin-side integration point because the OpenClaw channel SDK exposes directory + resolver hooks, but not a separate dedicated "list remote topics" surface for channel plugins.
+
+## DM naming and status
+
+- direct topics with placeholder subjects such as `Untitled` are renamed from participants when the plugin can read topic participants
+- direct topics are exposed with explicit `direct:<topic_id>` targets and `DM: ...` labels
+- account status snapshots now surface a `dmPolicy` value of `enabled`, `allowlisted`, or `disabled`
+
 ## Architecture note
 
 Child topics are mapped as separate conversations because Speakeasy documents them as normal topics with their own `topic_id`, `parent_topic_id`, `root_topic_id`, and `spawned_from_chat_id`. They are not nested message threads inside a single topic timeline. Treating them as OpenClaw `threadId` values would collapse a real standalone resource into a fake subresource and would break parent fallback, history reconstruction, and outbound routing.
 
 ## Limitations
 
-- Speakeasy's public docs do not currently expose a definitive direct-topic flag on topic snapshots, so direct-chat classification falls back to explicit direct-chat creation plus lightweight heuristics.
+- Speakeasy's public topic snapshots do not currently expose a definitive direct-topic flag, so direct-chat classification still relies on explicit `direct:` targets plus participant/subject heuristics.
+- OpenClaw's channel SDK currently exposes directory and resolver hooks for this, but not a separate topic-browser API, so topic enumeration is intentionally surfaced through those existing channel interfaces.
 - webhook mode assumes the OpenClaw gateway host exposes the plugin route directly
 - attachment upload is implemented through direct-upload + `chat.sgid`, but inline media rendering depends on the receiving Speakeasy client
 

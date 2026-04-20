@@ -66,6 +66,7 @@ export type SpeakeasyAgentProfile = {
 
 export type SpeakeasyParticipant = {
   id: number | string;
+  topic_id?: number | string | null;
   handle: string;
   name?: string | null;
   display_name?: string | null;
@@ -241,6 +242,7 @@ export type CanonicalInboundEvent = {
   chat?: SpeakeasyChat;
   timeline?: SpeakeasyTimeline;
   participant?: SpeakeasyParticipant;
+  participants?: SpeakeasyParticipant[];
   raw: SpeakeasyAgentEventEnvelope;
 };
 

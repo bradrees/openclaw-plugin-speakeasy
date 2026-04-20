@@ -1,3 +1,4 @@
+import { inferTopicConversationKind } from "./topic-metadata.js";
 import { normalizeId } from "./utils.js";
 export function buildConversationId(topicId, kind = "topic") {
     return `doug:${kind}:${topicId}`;
@@ -19,6 +20,15 @@ export function parseConversationId(raw) {
 export function inferConversationKind(params) {
     if (params.explicitKind) {
         return params.explicitKind;
+    }
+    if (params.topic) {
+        return inferTopicConversationKind({
+            topic: params.topic,
+            participantsCount: params.participantsCount
+        });
+    }
+    if (params.participantsCount === 2) {
+        return "direct";
     }
     return "topic";
 }

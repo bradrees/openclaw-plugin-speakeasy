@@ -9,8 +9,10 @@ import { inferOutboundTarget, SpeakeasyOutboundService } from "./outbound.js";
 import { SpeakeasyPollingLoop } from "./polling.js";
 import { resolveSessionConversation } from "./session-key-api.js";
 import { evaluateInboundPolicy } from "./security.js";
-import { createCursorStore, createLogger, createIdempotencyKey, encodeSpeakeasyCursor, updateCursorState } from "./utils.js";
+import { buildTopicPresentation, collectTopicParticipants, isPlaceholderTopicSubject } from "./topic-metadata.js";
+import { createCursorStore, createLogger, createIdempotencyKey, encodeSpeakeasyCursor, normalizeId, updateCursorState } from "./utils.js";
 import { SpeakeasyWebSocketConnection } from "./websocket.js";
+import { mapTopicToConversation } from "./mapping.js";
 const runtimeStore = createPluginRuntimeStore("Speakeasy runtime is not initialized yet. OpenClaw should call setRuntime() during plugin registration.");
 const webhookTargets = new Map();
 export const WEBHOOK_ROUTE_PREFIX = "/plugins/openclaw-plugin-speakeasy/webhooks/";
@@ -148,6 +150,218 @@ function createAccountClient(params) {
         }
     });
 }
+const EXPLICIT_TARGET_RE = /^(?:topic|direct):.+$/;
+const SESSION_TARGET_RE = /^doug:(?:topic|direct):.+$/;
+function parseSpeakeasyExplicitTarget(raw) {
+    const trimmed = raw.trim();
+    if (trimmed.startsWith("direct:") || trimmed.startsWith("doug:direct:")) {
+        return {
+            to: trimmed,
+            chatType: "direct"
+        };
+    }
+    if (trimmed.startsWith("topic:") || trimmed.startsWith("doug:topic:")) {
+        return {
+            to: trimmed,
+            chatType: "group"
+        };
+    }
+    return null;
+}
+function describeSpeakeasyDmPolicy(account) {
+    if (!account.allowDirectMessages) {
+        return "disabled";
+    }
+    if (account.allowedUserHandles?.length) {
+        return "allowlisted";
+    }
+    return "enabled";
+}
+async function resolveSpeakeasySelfHandle(params) {
+    if (params.account.agentHandle) {
+        return params.account.agentHandle;
+    }
+    try {
+        const profile = await createAccountClient({
+            account: params.account,
+            logger: params.logger
+        }).getMeIfAvailable();
+        return profile?.agent_handle ?? params.account.agentHandle;
+    }
+    catch (error) {
+        params.logger.debug("failed to resolve Speakeasy self handle for topic metadata", {
+            error: error instanceof Error ? error.message : String(error)
+        });
+        return params.account.agentHandle;
+    }
+}
+async function listSpeakeasyLiveTopics(params) {
+    const client = createAccountClient({
+        account: params.account,
+        logger: params.logger
+    });
+    const selfHandle = await resolveSpeakeasySelfHandle(params);
+    const topicsResponse = await client.listTopics();
+    const topics = Object.values(topicsResponse.records.topics?.data ?? {});
+    const entries = await Promise.all(topics.map(async (topic) => {
+        const topicId = normalizeId(topic.id);
+        if (!topicId) {
+            return null;
+        }
+        let participants = collectTopicParticipants(topicsResponse.records, topicId);
+        if (participants.length === 0 && isPlaceholderTopicSubject(topic.subject)) {
+            try {
+                const participantResponse = await client.getParticipants(topicId);
+                participants = Object.values(participantResponse.records.participants?.data ?? {});
+            }
+            catch (error) {
+                params.logger.debug("failed to fetch Speakeasy topic participants for directory metadata", {
+                    topicId,
+                    error: error instanceof Error ? error.message : String(error)
+                });
+            }
+        }
+        return {
+            topicId,
+            topic,
+            participants,
+            presentation: buildTopicPresentation({
+                topic,
+                participants,
+                selfHandle
+            })
+        };
+    }));
+    return entries
+        .filter((entry) => Boolean(entry))
+        .sort((a, b) => a.presentation.label.localeCompare(b.presentation.label));
+}
+function matchesSpeakeasyLiveTopic(entry, query) {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) {
+        return true;
+    }
+    const candidates = new Set([
+        entry.presentation.targetId,
+        entry.topicId,
+        entry.presentation.label,
+        entry.presentation.statusLabel,
+        entry.topic.subject ?? "",
+        entry.presentation.participantLabel ?? "",
+        ...entry.participants.flatMap((participant) => [
+            participant.handle,
+            participant.display_name ?? "",
+            participant.name ?? ""
+        ])
+    ]);
+    for (const candidate of candidates) {
+        if (candidate.trim().toLowerCase().includes(normalizedQuery)) {
+            return true;
+        }
+    }
+    return false;
+}
+function toSpeakeasyDirectoryEntry(entry) {
+    return {
+        kind: "group",
+        id: entry.presentation.targetId,
+        name: entry.presentation.label,
+        raw: {
+            topicId: entry.topicId,
+            subject: entry.topic.subject ?? null,
+            conversationKind: entry.presentation.kind,
+            statusLabel: entry.presentation.statusLabel,
+            participants: entry.participants.map((participant) => ({
+                handle: participant.handle,
+                displayName: participant.display_name ?? participant.name ?? participant.handle
+            }))
+        }
+    };
+}
+async function resolveLiveTopicTarget(params) {
+    const normalizedInput = params.input.trim().toLowerCase();
+    if (!normalizedInput) {
+        return null;
+    }
+    const entries = params.entries ??
+        (params.account && params.logger
+            ? await listSpeakeasyLiveTopics({
+                account: params.account,
+                logger: params.logger
+            })
+            : []);
+    return (entries.find((entry) => {
+        const exactCandidates = [
+            entry.presentation.targetId,
+            entry.topicId,
+            entry.presentation.label,
+            entry.topic.subject ?? "",
+            ...entry.participants.flatMap((participant) => [
+                participant.handle,
+                participant.display_name ?? "",
+                participant.name ?? ""
+            ])
+        ];
+        return exactCandidates.some((candidate) => candidate.trim().toLowerCase() === normalizedInput);
+    }) ??
+        entries.find((entry) => matchesSpeakeasyLiveTopic(entry, normalizedInput)) ??
+        null);
+}
+async function enrichInboundEvent(params) {
+    const topicId = params.event.conversation.providerIds.topicId;
+    if (!topicId) {
+        return params.event;
+    }
+    let topic = params.event.topic;
+    if (!topic) {
+        try {
+            topic = Object.values((await createAccountClient({
+                account: params.account,
+                logger: params.logger
+            }).getTopic(topicId)).records.topics?.data ?? {})[0];
+        }
+        catch (error) {
+            params.logger.debug("failed to hydrate Speakeasy topic snapshot for inbound event", {
+                topicId,
+                error: error instanceof Error ? error.message : String(error)
+            });
+        }
+    }
+    if (!topic) {
+        return params.event;
+    }
+    let participants = params.event.participants ?? [];
+    const needsParticipants = participants.length === 0 &&
+        (params.event.conversation.kind === "direct" || isPlaceholderTopicSubject(topic.subject));
+    if (needsParticipants) {
+        try {
+            const participantResponse = await createAccountClient({
+                account: params.account,
+                logger: params.logger
+            }).getParticipants(topicId);
+            participants = Object.values(participantResponse.records.participants?.data ?? {});
+        }
+        catch (error) {
+            params.logger.debug("failed to hydrate Speakeasy participants for inbound event", {
+                topicId,
+                error: error instanceof Error ? error.message : String(error)
+            });
+        }
+    }
+    const conversation = mapTopicToConversation({
+        topic,
+        kind: params.event.conversation.kind === "direct"
+            ? "direct"
+            : undefined,
+        participants
+    });
+    return {
+        ...params.event,
+        conversation,
+        topic,
+        participants
+    };
+}
 async function buildReplyDeliverer(params) {
     const client = createAccountClient({
         account: params.account,
@@ -213,6 +427,14 @@ async function buildReplyDeliverer(params) {
 }
 async function dispatchInboundEvent(params) {
     const runtime = runtimeStore.getRuntime();
+    const presentation = params.event.topic
+        ? buildTopicPresentation({
+            topic: params.event.topic,
+            explicitKind: params.event.conversation.kind === "direct" ? "direct" : undefined,
+            participants: params.event.participants,
+            selfHandle: params.agentHandle
+        })
+        : null;
     const policy = evaluateInboundPolicy({
         event: params.event,
         account: params.account,
@@ -246,9 +468,12 @@ async function dispatchInboundEvent(params) {
         Provider: "speakeasy",
         AccountId: params.account.accountId,
         ChatType: params.event.conversation.kind === "direct" ? "direct" : "group",
-        ConversationLabel: params.event.topic?.subject ??
+        ConversationLabel: presentation?.label ??
+            params.event.topic?.subject ??
             params.event.conversation.providerIds.topicId,
-        GroupSubject: params.event.topic?.subject ?? undefined,
+        GroupSubject: params.event.conversation.kind === "direct"
+            ? presentation?.statusLabel
+            : presentation?.groupSubject ?? params.event.topic?.subject ?? undefined,
         From: params.event.chat?.author_handle ?? params.event.actorHandle ?? "unknown",
         To: params.event.conversation.conversationId,
         Body: params.event.chat?.plain ??
@@ -333,17 +558,23 @@ async function startAccountRuntime(params) {
         }
     }
     const handleEvent = async (event) => {
+        const enrichedEvent = await enrichInboundEvent({
+            event,
+            account: params.account,
+            logger,
+            agentHandle
+        });
         let duplicate = false;
-        const resumeCursor = event.transport === "polling" ? undefined : encodeSpeakeasyCursor(event.id);
+        const resumeCursor = enrichedEvent.transport === "polling" ? undefined : encodeSpeakeasyCursor(enrichedEvent.id);
         await updateCursorState(store, (state) => {
-            const deduped = dedupeEvent(state, event.id);
+            const deduped = dedupeEvent(state, enrichedEvent.id);
             duplicate = deduped.duplicate;
             return {
                 ...deduped.state,
                 ...(agentHandle ? { agentHandle } : {}),
                 conversationKinds: {
                     ...deduped.state.conversationKinds,
-                    [event.conversation.providerIds.topicId]: event.conversation.kind
+                    [enrichedEvent.conversation.providerIds.topicId]: enrichedEvent.conversation.kind
                 }
             };
         });
@@ -356,14 +587,14 @@ async function startAccountRuntime(params) {
                 }));
             }
             logger.debug("skipping duplicate Speakeasy event", {
-                eventId: event.id
+                eventId: enrichedEvent.id
             });
             return;
         }
         await dispatchInboundEvent({
             cfg: params.cfg,
             account: params.account,
-            event,
+            event: enrichedEvent,
             logger,
             agentHandle
         });
@@ -526,6 +757,7 @@ export const speakeasyChannelPlugin = {
                 connected: Boolean(connectivityProbe),
                 baseUrl: account.baseUrl,
                 mode: account.transport,
+                dmPolicy: describeSpeakeasyDmPolicy(account),
                 degraded: connectivityProbe?.degraded ?? false,
                 probeEndpoint: connectivityProbe?.endpoint,
                 profile: connectivityProbe?.profile ?? null,
@@ -655,7 +887,7 @@ export const speakeasyChannelPlugin = {
         }
     },
     messaging: {
-        normalizeTarget: (raw) => raw.trim(),
+        normalizeTarget: (raw) => parseSpeakeasyExplicitTarget(raw)?.to ?? raw.trim(),
         resolveInboundConversation: ({ conversationId }) => conversationId
             ? {
                 conversationId
@@ -683,10 +915,11 @@ export const speakeasyChannelPlugin = {
         resolveSessionTarget: ({ id }) => id,
         parseExplicitTarget: ({ raw }) => {
             const trimmed = raw.trim();
-            if (trimmed.startsWith("topic:") || trimmed.startsWith("direct:") || trimmed.startsWith("doug:topic:") || trimmed.startsWith("doug:direct:")) {
+            const parsed = parseSpeakeasyExplicitTarget(trimmed);
+            if (parsed) {
                 return {
-                    to: trimmed,
-                    chatType: (trimmed.startsWith("direct:") || trimmed.startsWith("doug:direct:")) ? "direct" : "group"
+                    to: parsed.to,
+                    chatType: parsed.chatType
                 };
             }
             if (trimmed.includes("@")) {
@@ -700,7 +933,68 @@ export const speakeasyChannelPlugin = {
                 chatType: "group"
             };
         },
-        inferTargetChatType: ({ to }) => (to.includes("@") ? "direct" : "group"),
+        inferTargetChatType: ({ to }) => parseSpeakeasyExplicitTarget(to)?.chatType ?? (to.includes("@") ? "direct" : "group"),
+        targetResolver: {
+            looksLikeId: (raw, normalized) => EXPLICIT_TARGET_RE.test(raw.trim()) ||
+                SESSION_TARGET_RE.test(raw.trim()) ||
+                /^\d+$/.test((normalized ?? raw).trim()),
+            hint: "<topic:ID|direct:ID|topic id|topic name|user handle>",
+            resolveTarget: async ({ cfg, accountId, input, normalized, preferredKind }) => {
+                const account = resolveSpeakeasyAccount(cfg, accountId ?? undefined);
+                const logger = createAccountLogger(account);
+                const parsed = parseSpeakeasyExplicitTarget(input);
+                const normalizedInput = (normalized ?? input).trim();
+                if (parsed) {
+                    return {
+                        to: parsed.to,
+                        kind: "group",
+                        display: parsed.chatType === "direct" ? `DM ${parsed.to.replace(/^(?:doug:)?direct:/, "")}` : parsed.to,
+                        source: "normalized"
+                    };
+                }
+                if (preferredKind !== "user" && /^\d+$/.test(normalizedInput)) {
+                    return {
+                        to: `topic:${normalizedInput}`,
+                        kind: "group",
+                        display: `Topic ${normalizedInput}`,
+                        source: "normalized"
+                    };
+                }
+                if (preferredKind === "user" && normalizedInput.includes("@")) {
+                    return {
+                        to: input.trim(),
+                        kind: "user",
+                        display: input.trim(),
+                        source: "normalized"
+                    };
+                }
+                if (preferredKind !== "user") {
+                    const match = await resolveLiveTopicTarget({
+                        account,
+                        logger,
+                        input
+                    });
+                    if (match) {
+                        return {
+                            to: match.presentation.targetId,
+                            kind: "group",
+                            display: `${match.presentation.label} (${match.presentation.statusLabel})`,
+                            source: "directory"
+                        };
+                    }
+                }
+                return null;
+            }
+        },
+        formatTargetDisplay: ({ target, display }) => {
+            if (display) {
+                return display;
+            }
+            if (target.startsWith("direct:") || target.startsWith("doug:direct:")) {
+                return `DM ${target.replace(/^(?:doug:)?direct:/, "")}`;
+            }
+            return target;
+        },
         resolveOutboundSessionRoute: ({ cfg, agentId: _agentId, target }) => {
             const parsed = resolveSessionConversation({
                 kind: "group",
@@ -728,13 +1022,94 @@ export const speakeasyChannelPlugin = {
         resolveConversationRef: ({ conversationId, parentConversationId }) => parentConversationId ? { conversationId, parentConversationId } : { conversationId },
         buildModelOverrideParentCandidates: ({ parentConversationId }) => parentConversationId ? [parentConversationId] : []
     },
+    directory: {
+        self: async ({ cfg, accountId }) => {
+            const account = resolveSpeakeasyAccount(cfg, accountId ?? undefined);
+            const logger = createAccountLogger(account);
+            const selfHandle = await resolveSpeakeasySelfHandle({
+                account,
+                logger
+            });
+            if (!selfHandle) {
+                return null;
+            }
+            return {
+                kind: "user",
+                id: selfHandle,
+                name: account.botDisplayName,
+                handle: selfHandle
+            };
+        },
+        listGroupsLive: async ({ cfg, accountId, query, limit }) => {
+            const account = resolveSpeakeasyAccount(cfg, accountId ?? undefined);
+            const entries = (await listSpeakeasyLiveTopics({
+                account,
+                logger: createAccountLogger(account)
+            }))
+                .filter((entry) => matchesSpeakeasyLiveTopic(entry, query ?? ""))
+                .slice(0, limit ?? Number.MAX_SAFE_INTEGER)
+                .map(toSpeakeasyDirectoryEntry);
+            return entries;
+        }
+    },
     resolver: {
-        resolveTargets: async ({ inputs, kind }) => inputs.map((input) => ({
-            input,
-            resolved: true,
-            id: kind === "user" ? input : input.replace(/^(topic|direct):/, ""),
-            name: input
-        }))
+        resolveTargets: async ({ cfg, accountId, inputs, kind }) => {
+            const account = resolveSpeakeasyAccount(cfg, accountId ?? undefined);
+            const logger = createAccountLogger(account);
+            if (kind === "user") {
+                return inputs.map((input) => ({
+                    input,
+                    resolved: Boolean(input.trim()),
+                    id: input.trim() || undefined,
+                    name: input.trim() || undefined,
+                    note: input.includes("@") ? "direct handle" : "unverified user target"
+                }));
+            }
+            const liveTopics = await listSpeakeasyLiveTopics({
+                account,
+                logger
+            });
+            const resolved = await Promise.all(inputs.map(async (input) => {
+                const parsed = parseSpeakeasyExplicitTarget(input);
+                if (parsed) {
+                    return {
+                        input,
+                        resolved: true,
+                        id: parsed.to,
+                        name: parsed.to,
+                        note: parsed.chatType === "direct" ? "direct message" : "topic"
+                    };
+                }
+                if (/^\d+$/.test(input.trim())) {
+                    return {
+                        input,
+                        resolved: true,
+                        id: `topic:${input.trim()}`,
+                        name: `Topic ${input.trim()}`,
+                        note: "topic id"
+                    };
+                }
+                const match = await resolveLiveTopicTarget({
+                    entries: liveTopics,
+                    input
+                });
+                if (!match) {
+                    return {
+                        input,
+                        resolved: false,
+                        note: "no matching Speakeasy topic"
+                    };
+                }
+                return {
+                    input,
+                    resolved: true,
+                    id: match.presentation.targetId,
+                    name: match.presentation.label,
+                    note: match.presentation.statusLabel
+                };
+            }));
+            return resolved;
+        }
     }
 };
 async function fetchRemoteMedia(mediaUrl) {

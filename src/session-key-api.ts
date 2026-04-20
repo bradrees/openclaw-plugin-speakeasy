@@ -1,4 +1,5 @@
 import type { CanonicalConversationRef, ConversationKind, SessionConversationResolution, SpeakeasyTopic } from "./types.js";
+import { inferTopicConversationKind } from "./topic-metadata.js";
 import { normalizeId } from "./utils.js";
 
 export function buildConversationId(topicId: string, kind: ConversationKind = "topic"): string {
@@ -31,6 +32,17 @@ export function inferConversationKind(params: {
 }): ConversationKind {
   if (params.explicitKind) {
     return params.explicitKind;
+  }
+
+  if (params.topic) {
+    return inferTopicConversationKind({
+      topic: params.topic,
+      participantsCount: params.participantsCount
+    });
+  }
+
+  if (params.participantsCount === 2) {
+    return "direct";
   }
 
   return "topic";
