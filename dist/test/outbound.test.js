@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { SpeakeasyOutboundService } from "../src/outbound.js";
+import { inferOutboundTarget, normalizeDirectHandle, SpeakeasyOutboundService } from "../src/outbound.js";
 describe("outbound", () => {
     it("sends topic messages", async () => {
         const createChat = vi.fn().mockResolvedValue({
@@ -49,6 +49,14 @@ describe("outbound", () => {
         });
         expect(updateChat).toHaveBeenCalled();
         expect(deleteChat).toHaveBeenCalled();
+    });
+    it("normalizes email handles for originated direct messages", () => {
+        expect(normalizeDirectHandle("user:chris@team.speakeasy.to")).toBe("chris@team.speakeasy.to");
+        expect(normalizeDirectHandle("@kaye@powertoolsapp.com")).toBe("kaye@powertoolsapp.com");
+        expect(inferOutboundTarget("user:luke@team.speakeasy.to", {})).toEqual({
+            kind: "direct",
+            handle: "luke@team.speakeasy.to"
+        });
     });
 });
 //# sourceMappingURL=outbound.test.js.map

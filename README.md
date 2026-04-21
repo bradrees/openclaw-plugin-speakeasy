@@ -127,6 +127,14 @@ openclaw directory groups members --channel openclaw-plugin-speakeasy --group-id
 
 Use the returned ids (`topic:<topic_id>` or `direct:<topic_id>`) as message targets. Do not rely on stored session ids as the source of truth for current topics, and do not use the generic `openclaw message channel list` / `openclaw message thread list` CLI wrappers for Speakeasy because those are still Discord/guild-shaped in current OpenClaw core.
 
+To originate a DM when no `direct:<topic_id>` exists yet, send to the email-style Speakeasy handle directly:
+
+```text
+Send a Speakeasy DM to chris@team.speakeasy.to asking for today's daily update.
+```
+
+The plugin resolves that as a direct target and calls Speakeasy's direct-chat creation API, which creates or reuses the underlying direct topic.
+
 ## DM naming and status
 
 - direct topics with placeholder subjects such as `Untitled` are renamed from participants when the plugin can read topic participants

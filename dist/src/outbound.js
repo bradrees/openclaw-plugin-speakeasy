@@ -82,11 +82,15 @@ export class SpeakeasyOutboundService {
         });
     }
 }
+export function normalizeDirectHandle(input) {
+    return input.trim().replace(/^user:/i, "").replace(/^@/, "");
+}
 export function inferOutboundTarget(input, _account) {
-    if (input.includes("@")) {
+    const directHandle = normalizeDirectHandle(input);
+    if (directHandle.includes("@")) {
         return {
             kind: "direct",
-            handle: input
+            handle: directHandle
         };
     }
     return {

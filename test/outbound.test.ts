@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { SpeakeasyApiClient } from "../src/client.js";
-import { SpeakeasyOutboundService } from "../src/outbound.js";
+import { inferOutboundTarget, normalizeDirectHandle, SpeakeasyOutboundService } from "../src/outbound.js";
 
 describe("outbound", () => {
   it("sends topic messages", async () => {
@@ -57,5 +57,15 @@ describe("outbound", () => {
 
     expect(updateChat).toHaveBeenCalled();
     expect(deleteChat).toHaveBeenCalled();
+  });
+
+  it("normalizes email handles for originated direct messages", () => {
+    expect(normalizeDirectHandle("user:chris@team.speakeasy.to")).toBe("chris@team.speakeasy.to");
+    expect(normalizeDirectHandle("@kaye@powertoolsapp.com")).toBe("kaye@powertoolsapp.com");
+
+    expect(inferOutboundTarget("user:luke@team.speakeasy.to", {} as never)).toEqual({
+      kind: "direct",
+      handle: "luke@team.speakeasy.to"
+    });
   });
 });

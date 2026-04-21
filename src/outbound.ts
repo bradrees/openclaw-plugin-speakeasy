@@ -133,11 +133,17 @@ export class SpeakeasyOutboundService {
   }
 }
 
+export function normalizeDirectHandle(input: string): string {
+  return input.trim().replace(/^user:/i, "").replace(/^@/, "");
+}
+
 export function inferOutboundTarget(input: string, _account: SpeakeasyAccountConfig): OutboundTarget {
-  if (input.includes("@")) {
+  const directHandle = normalizeDirectHandle(input);
+
+  if (directHandle.includes("@")) {
     return {
       kind: "direct",
-      handle: input
+      handle: directHandle
     };
   }
 

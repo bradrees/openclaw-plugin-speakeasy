@@ -94,6 +94,7 @@ describe("channel gateway", () => {
     const actions = speakeasyChannelPlugin.actions;
     const messageToolHints = speakeasyChannelPlugin.agentPrompt?.messageToolHints;
     const resolveTargets = speakeasyChannelPlugin.resolver?.resolveTargets;
+    const resolveMessagingTarget = speakeasyChannelPlugin.messaging?.targetResolver?.resolveTarget;
     const buildAccountSnapshot = speakeasyChannelPlugin.status?.buildAccountSnapshot;
     afterEach(async () => {
         await stopAccount?.({
@@ -214,6 +215,7 @@ describe("channel gateway", () => {
         });
         expect(hints.join("\n")).toContain("directory groups");
         expect(hints.join("\n")).toContain("openclaw-plugin-speakeasy");
+        expect(hints.join("\n")).toContain("send to the person's email-style handle directly");
         expect(hints.join("\n")).toContain("may require `--guild-id`");
     });
     it("lists live Speakeasy topics with DM-aware labels", async () => {
@@ -453,6 +455,38 @@ describe("channel gateway", () => {
                 id: "direct:7",
                 name: "DM: Alice Example",
                 note: "direct message"
+            }
+        ]);
+    });
+    it("resolves unknown email handles as originatable direct message targets", async () => {
+        expect(resolveMessagingTarget).toBeTypeOf("function");
+        globalThis.fetch = vi.fn(async (url) => {
+            throw new Error(`unexpected fetch: ${String(url)}`);
+        });
+        await expect(resolveMessagingTarget({
+            cfg,
+            accountId: "default",
+            input: "chris@team.speakeasy.to",
+            normalized: "chris@team.speakeasy.to"
+        })).resolves.toEqual({
+            to: "chris@team.speakeasy.to",
+            kind: "user",
+            display: "chris@team.speakeasy.to",
+            source: "normalized"
+        });
+        await expect(resolveTargets({
+            cfg,
+            accountId: "default",
+            kind: "group",
+            inputs: ["user:kaye@powertoolsapp.com"],
+            runtime: {}
+        })).resolves.toEqual([
+            {
+                input: "user:kaye@powertoolsapp.com",
+                resolved: true,
+                id: "kaye@powertoolsapp.com",
+                name: "kaye@powertoolsapp.com",
+                note: "direct handle"
             }
         ]);
     });

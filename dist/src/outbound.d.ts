@@ -40,5 +40,6 @@ export declare class SpeakeasyOutboundService {
         chatId: string;
     }): Promise<void>;
 }
+export declare function normalizeDirectHandle(input: string): string;
 export declare function inferOutboundTarget(input: string, _account: SpeakeasyAccountConfig): OutboundTarget;
 //# sourceMappingURL=outbound.d.ts.map

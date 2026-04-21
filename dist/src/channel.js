@@ -5,7 +5,7 @@ import { SPEAKEASY_CHANNEL_JSON_SCHEMA, resolveSpeakeasyAccount, validateSpeakea
 import { resolveAgentHandleFromAccessToken, resolveSpeakeasyAccessTokenExpiryText } from "./auth.js";
 import { SpeakeasyApiClient } from "./client.js";
 import { dedupeEvent, normalizeWebhookEvent, verifyWebhookSignature } from "./events.js";
-import { inferOutboundTarget, SpeakeasyOutboundService } from "./outbound.js";
+import { inferOutboundTarget, normalizeDirectHandle, SpeakeasyOutboundService } from "./outbound.js";
 import { SpeakeasyPollingLoop } from "./polling.js";
 import { parseConversationId, resolveSessionConversation } from "./session-key-api.js";
 import { evaluateInboundPolicy } from "./security.js";
@@ -175,6 +175,9 @@ function readOptionalIntegerParam(params, key) {
         return undefined;
     }
     return Math.trunc(numberValue);
+}
+function isDirectHandleTarget(input) {
+    return normalizeDirectHandle(input).includes("@");
 }
 function parseSpeakeasyExplicitTarget(raw) {
     const trimmed = raw.trim();
@@ -788,6 +791,7 @@ export const speakeasyChannelPlugin = {
             messageToolHints: () => [
                 "- Speakeasy topic discovery: list current topics/channels through the channel directory, not stale session history. Use directory groups listing for `openclaw-plugin-speakeasy`; returned targets look like `topic:<topic_id>` or `direct:<topic_id>`.",
                 "- Speakeasy participants: after choosing a returned topic/direct target, use directory group members with that target id to list members.",
+                "- Speakeasy DMs: to start a new DM when no `direct:<topic_id>` exists yet, send to the person's email-style handle directly, for example `chris@team.speakeasy.to`; the plugin will create the direct chat topic.",
                 "- Speakeasy compatibility: plugin-owned `channel-list` and `thread-list` message actions return the live topic list, but the CLI subcommands `openclaw message channel list` and `openclaw message thread list` are still Discord-shaped and may require `--guild-id`."
             ]
         },
@@ -1058,11 +1062,12 @@ export const speakeasyChannelPlugin = {
                         source: "normalized"
                     };
                 }
-                if (preferredKind === "user" && normalizedInput.includes("@")) {
+                if (isDirectHandleTarget(normalizedInput)) {
+                    const handle = normalizeDirectHandle(normalizedInput);
                     return {
-                        to: input.trim(),
+                        to: handle,
                         kind: "user",
-                        display: input.trim(),
+                        display: handle,
                         source: "normalized"
                     };
                 }
@@ -1202,15 +1207,19 @@ export const speakeasyChannelPlugin = {
                 return inputs.map((input) => ({
                     input,
                     resolved: Boolean(input.trim()),
-                    id: input.trim() || undefined,
-                    name: input.trim() || undefined,
-                    note: input.includes("@") ? "direct handle" : "unverified user target"
+                    id: normalizeDirectHandle(input) || undefined,
+                    name: normalizeDirectHandle(input) || undefined,
+                    note: isDirectHandleTarget(input) ? "direct handle" : "unverified user target"
                 }));
             }
-            const liveTopics = await listSpeakeasyLiveTopics({
-                account,
-                logger
-            });
+            let liveTopics;
+            const getLiveTopics = async () => {
+                liveTopics ??= await listSpeakeasyLiveTopics({
+                    account,
+                    logger
+                });
+                return liveTopics;
+            };
             const resolved = await Promise.all(inputs.map(async (input) => {
                 const parsed = parseSpeakeasyExplicitTarget(input);
                 if (parsed) {
@@ -1220,6 +1229,16 @@ export const speakeasyChannelPlugin = {
                         id: parsed.to,
                         name: parsed.to,
                         note: parsed.chatType === "direct" ? "direct message" : "topic"
+                    };
+                }
+                if (isDirectHandleTarget(input)) {
+                    const handle = normalizeDirectHandle(input);
+                    return {
+                        input,
+                        resolved: true,
+                        id: handle,
+                        name: handle,
+                        note: "direct handle"
                     };
                 }
                 if (/^\d+$/.test(input.trim())) {
@@ -1232,7 +1251,7 @@ export const speakeasyChannelPlugin = {
                     };
                 }
                 const match = await resolveLiveTopicTarget({
-                    entries: liveTopics,
+                    entries: await getLiveTopics(),
                     input
                 });
                 if (!match) {
