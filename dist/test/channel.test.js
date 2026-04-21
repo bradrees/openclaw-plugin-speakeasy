@@ -92,6 +92,7 @@ describe("channel gateway", () => {
     const listGroupsLive = speakeasyChannelPlugin.directory?.listGroupsLive;
     const listGroupMembers = speakeasyChannelPlugin.directory?.listGroupMembers;
     const actions = speakeasyChannelPlugin.actions;
+    const messageToolHints = speakeasyChannelPlugin.agentPrompt?.messageToolHints;
     const resolveTargets = speakeasyChannelPlugin.resolver?.resolveTargets;
     const buildAccountSnapshot = speakeasyChannelPlugin.status?.buildAccountSnapshot;
     afterEach(async () => {
@@ -204,6 +205,16 @@ describe("channel gateway", () => {
             dmPolicy: "enabled",
             probeEndpoint: "agent/topics"
         });
+    });
+    it("tells agents to use directory groups for Speakeasy topic discovery", () => {
+        expect(messageToolHints).toBeTypeOf("function");
+        const hints = messageToolHints({
+            cfg,
+            accountId: "default"
+        });
+        expect(hints.join("\n")).toContain("directory groups");
+        expect(hints.join("\n")).toContain("openclaw-plugin-speakeasy");
+        expect(hints.join("\n")).toContain("may require `--guild-id`");
     });
     it("lists live Speakeasy topics with DM-aware labels", async () => {
         expect(listGroups).toBeTypeOf("function");

@@ -110,6 +110,23 @@ The plugin exposes Speakeasy topic discovery through normal OpenClaw channel sur
 
 This is the best current plugin-side integration point because the OpenClaw channel SDK exposes directory + resolver hooks, but not a separate dedicated "list remote topics" surface for channel plugins.
 
+### Agent usage
+
+When asking an OpenClaw agent to inspect Speakeasy topology, direct it to use the Speakeasy directory surface:
+
+```text
+Use the Speakeasy channel directory. List groups for openclaw-plugin-speakeasy, then list group members for the returned topic/direct target that looks relevant.
+```
+
+The known-good CLI path is:
+
+```bash
+openclaw directory groups list --channel openclaw-plugin-speakeasy --json
+openclaw directory groups members --channel openclaw-plugin-speakeasy --group-id topic:<topic_id> --json
+```
+
+Use the returned ids (`topic:<topic_id>` or `direct:<topic_id>`) as message targets. Do not rely on stored session ids as the source of truth for current topics, and do not use the generic `openclaw message channel list` / `openclaw message thread list` CLI wrappers for Speakeasy because those are still Discord/guild-shaped in current OpenClaw core.
+
 ## DM naming and status
 
 - direct topics with placeholder subjects such as `Untitled` are renamed from participants when the plugin can read topic participants

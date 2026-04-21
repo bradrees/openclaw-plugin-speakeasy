@@ -1014,6 +1014,13 @@ export const speakeasyChannelPlugin = {
       media: true,
       threads: false
     },
+    agentPrompt: {
+      messageToolHints: () => [
+        "- Speakeasy topic discovery: list current topics/channels through the channel directory, not stale session history. Use directory groups listing for `openclaw-plugin-speakeasy`; returned targets look like `topic:<topic_id>` or `direct:<topic_id>`.",
+        "- Speakeasy participants: after choosing a returned topic/direct target, use directory group members with that target id to list members.",
+        "- Speakeasy compatibility: plugin-owned `channel-list` and `thread-list` message actions return the live topic list, but the CLI subcommands `openclaw message channel list` and `openclaw message thread list` are still Discord-shaped and may require `--guild-id`."
+      ]
+    },
     configSchema: SPEAKEASY_CHANNEL_JSON_SCHEMA as never,
     setup: {
       applyAccountConfig: ({ cfg, accountId, input }) => {
