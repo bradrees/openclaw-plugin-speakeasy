@@ -101,7 +101,7 @@ The package works without any public inbound URL because websocket and polling a
 
 The plugin exposes Speakeasy topic discovery through normal OpenClaw channel surfaces instead of a plugin-specific helper:
 
-- `directory.listGroupsLive` is the primary live topic listing surface. It returns explicit OpenClaw targets such as `topic:42` and `direct:7`.
+- `directory.listGroups` and `directory.listGroupsLive` expose live topic listing. They return explicit OpenClaw targets such as `topic:42` and `direct:7`.
 - `directory.listGroupMembers` returns live participants for those same topic targets, so `openclaw directory groups members --group-id topic:42` can inspect a topic roster without a plugin-specific tool.
 - `resolver.resolveTargets` resolves bare topic ids plus friendly topic/DM labels back into those explicit targets for CLI and tool flows.
 - `messaging.targetResolver` handles post-directory normalization for explicit `topic:` / `direct:` ids and bare numeric topic ids.

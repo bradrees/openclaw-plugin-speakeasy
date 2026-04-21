@@ -88,6 +88,7 @@ describe("channel gateway", () => {
     const startAccount = speakeasyChannelPlugin.gateway?.startAccount;
     const stopAccount = speakeasyChannelPlugin.gateway?.stopAccount;
     const applyAccountConfig = speakeasyChannelPlugin.setup?.applyAccountConfig;
+    const listGroups = speakeasyChannelPlugin.directory?.listGroups;
     const listGroupsLive = speakeasyChannelPlugin.directory?.listGroupsLive;
     const listGroupMembers = speakeasyChannelPlugin.directory?.listGroupMembers;
     const resolveTargets = speakeasyChannelPlugin.resolver?.resolveTargets;
@@ -204,6 +205,7 @@ describe("channel gateway", () => {
         });
     });
     it("lists live Speakeasy topics with DM-aware labels", async () => {
+        expect(listGroups).toBeTypeOf("function");
         expect(listGroupsLive).toBeTypeOf("function");
         globalThis.fetch = vi.fn(async (url) => {
             const href = String(url);
@@ -263,7 +265,7 @@ describe("channel gateway", () => {
             }
             throw new Error(`unexpected fetch: ${href}`);
         });
-        const entries = await listGroupsLive({
+        const entries = await listGroups({
             cfg,
             accountId: "default",
             runtime: {}
@@ -276,6 +278,17 @@ describe("channel gateway", () => {
             }),
             expect.objectContaining({
                 kind: "group",
+                id: "topic:42",
+                name: "Release planning"
+            })
+        ]);
+        await expect(listGroupsLive({
+            cfg,
+            accountId: "default",
+            query: "release",
+            runtime: {}
+        })).resolves.toEqual([
+            expect.objectContaining({
                 id: "topic:42",
                 name: "Release planning"
             })

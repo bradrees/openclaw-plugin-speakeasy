@@ -387,6 +387,21 @@ async function listSpeakeasyLiveTopics(params: {
     .sort((a, b) => a.presentation.label.localeCompare(b.presentation.label));
 }
 
+async function listSpeakeasyDirectoryGroups(params: {
+  account: ResolvedSpeakeasyAccount;
+  logger: LoggerLike;
+  query?: string | null;
+  limit?: number | null;
+}): Promise<ChannelDirectoryEntry[]> {
+  return (await listSpeakeasyLiveTopics({
+    account: params.account,
+    logger: params.logger
+  }))
+    .filter((entry) => matchesSpeakeasyLiveTopic(entry, params.query ?? ""))
+    .slice(0, params.limit ?? Number.MAX_SAFE_INTEGER)
+    .map(toSpeakeasyDirectoryEntry);
+}
+
 function matchesSpeakeasyLiveTopic(entry: SpeakeasyLiveTopicEntry, query: string): boolean {
   const normalizedQuery = query.trim().toLowerCase();
 
@@ -1305,17 +1320,23 @@ export const speakeasyChannelPlugin = {
         handle: selfHandle
       };
     },
+    listGroups: async ({ cfg, accountId, query, limit }) => {
+      const account = resolveSpeakeasyAccount(cfg as unknown as Record<string, unknown>, accountId ?? undefined);
+      return listSpeakeasyDirectoryGroups({
+        account,
+        logger: createAccountLogger(account),
+        query,
+        limit
+      });
+    },
     listGroupsLive: async ({ cfg, accountId, query, limit }) => {
       const account = resolveSpeakeasyAccount(cfg as unknown as Record<string, unknown>, accountId ?? undefined);
-      const entries = (await listSpeakeasyLiveTopics({
+      return listSpeakeasyDirectoryGroups({
         account,
-        logger: createAccountLogger(account)
-      }))
-        .filter((entry) => matchesSpeakeasyLiveTopic(entry, query ?? ""))
-        .slice(0, limit ?? Number.MAX_SAFE_INTEGER)
-        .map(toSpeakeasyDirectoryEntry);
-
-      return entries;
+        logger: createAccountLogger(account),
+        query,
+        limit
+      });
     },
     listGroupMembers: async ({ cfg, accountId, groupId, limit }) => {
       const account = resolveSpeakeasyAccount(cfg as unknown as Record<string, unknown>, accountId ?? undefined);
