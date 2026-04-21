@@ -40,6 +40,8 @@ import type {
   LoggerLike,
   ResolvedSpeakeasyAccount,
   SpeakeasyParticipant,
+  SpeakeasyChat,
+  SpeakeasyHistoryResponse,
   SpeakeasyAuthRefreshResult,
   SpeakeasyConnectivityProbe
 } from "./types.js";
@@ -52,7 +54,7 @@ import {
   updateCursorState
 } from "./utils.js";
 import { SpeakeasyWebSocketConnection } from "./websocket.js";
-import { mapTopicToConversation } from "./mapping.js";
+import { buildProviderMessageId, mapTopicToConversation } from "./mapping.js";
 
 const runtimeStore = createPluginRuntimeStore<PluginRuntime>(
   "Speakeasy runtime is not initialized yet. OpenClaw should call setRuntime() during plugin registration."
@@ -258,11 +260,16 @@ type SpeakeasyLiveTopicEntry = {
 };
 
 const SPEAKEASY_LIST_ACTIONS = ["channel-list", "thread-list"] satisfies ChannelMessageActionName[];
+const SPEAKEASY_MESSAGE_ACTIONS = [...SPEAKEASY_LIST_ACTIONS, "read"] satisfies ChannelMessageActionName[];
 const EXPLICIT_TARGET_RE = /^(?:topic|direct):.+$/;
 const SESSION_TARGET_RE = /^doug:(?:topic|direct):.+$/;
 
 function isSpeakeasyListAction(action: ChannelMessageActionName): action is (typeof SPEAKEASY_LIST_ACTIONS)[number] {
   return (SPEAKEASY_LIST_ACTIONS as readonly ChannelMessageActionName[]).includes(action);
+}
+
+function isSpeakeasyMessageAction(action: ChannelMessageActionName): action is (typeof SPEAKEASY_MESSAGE_ACTIONS)[number] {
+  return (SPEAKEASY_MESSAGE_ACTIONS as readonly ChannelMessageActionName[]).includes(action);
 }
 
 function readOptionalStringParam(params: Record<string, unknown>, key: string): string | undefined {
@@ -290,6 +297,18 @@ function readOptionalIntegerParam(params: Record<string, unknown>, key: string):
   }
 
   return Math.trunc(numberValue);
+}
+
+function speakeasyJsonActionResult(payload: Record<string, unknown>) {
+  return {
+    details: payload,
+    content: [
+      {
+        type: "text" as const,
+        text: JSON.stringify(payload, null, 2)
+      }
+    ]
+  };
 }
 
 function isDirectHandleTarget(input: string): boolean {
@@ -470,15 +489,248 @@ async function handleSpeakeasyListAction(params: {
         : undefined
   };
 
+  return speakeasyJsonActionResult(payload);
+}
+
+function parseSpeakeasyProviderMessageId(raw: string): { topicId: string; chatId: string } | null {
+  const match = /^chat:([^:]+):(.+)$/.exec(raw.trim());
+  const topicId = match?.[1]?.trim();
+  const chatId = match?.[2]?.trim();
+
+  if (!topicId || !chatId) {
+    return null;
+  }
+
   return {
-    details: payload,
-    content: [
-      {
-        type: "text" as const,
-        text: JSON.stringify(payload, null, 2)
-      }
-    ]
+    topicId,
+    chatId
   };
+}
+
+function stripSpeakeasyHtml(html: string | null | undefined): string | undefined {
+  const stripped = html
+    ?.replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, "\"")
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return stripped || undefined;
+}
+
+function readChatString(chat: SpeakeasyChat, key: "created_at" | "updated_at" | "edited_at"): string | undefined {
+  const value = chat[key];
+
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function normalizeSpeakeasyReadChat(chat: SpeakeasyChat) {
+  const topicId = normalizeId(chat.topic_id);
+  const chatId = normalizeId(chat.id);
+  const author = chat.author_handle ?? chat.handle;
+  const text = chat.plain?.trim() || stripSpeakeasyHtml(chat.html) || "";
+
+  return {
+    id: topicId && chatId ? buildProviderMessageId(topicId, chatId) : chatId,
+    messageId: topicId && chatId ? buildProviderMessageId(topicId, chatId) : chatId,
+    chatId,
+    topicId,
+    authorTag: author,
+    author: author
+      ? {
+          username: author,
+          id: author
+        }
+      : undefined,
+    timestamp: readChatString(chat, "created_at") ?? readChatString(chat, "updated_at"),
+    editedAt: readChatString(chat, "edited_at"),
+    text,
+    content: text,
+    html: chat.html ?? undefined,
+    plain: chat.plain ?? undefined,
+    deleted: Boolean(chat.deleted),
+    attachments: chat.attachments ?? []
+  };
+}
+
+function orderSpeakeasyHistoryChats(response: SpeakeasyHistoryResponse): SpeakeasyChat[] {
+  const chatRecords = response.records.chats?.data ?? {};
+  const timelineRecords = Object.values(response.records.timelines?.data ?? {});
+  const timelineChats = timelineRecords
+    .filter((timeline) => {
+      const type = timeline.tl_type?.toLowerCase();
+      return !type || type === "chat" || type === "speakeasy::chat";
+    })
+    .map((timeline) => {
+      const chatId = normalizeId(timeline.tl_id);
+      return chatId ? chatRecords[chatId] : undefined;
+    })
+    .filter((chat): chat is SpeakeasyChat => Boolean(chat));
+
+  if (timelineChats.length > 0) {
+    return timelineChats;
+  }
+
+  return Object.values(chatRecords);
+}
+
+function findExistingDirectTopicForHandle(entries: SpeakeasyLiveTopicEntry[], handle: string): SpeakeasyLiveTopicEntry | null {
+  const normalizedHandle = handle.trim().toLowerCase();
+
+  if (!normalizedHandle) {
+    return null;
+  }
+
+  return entries.find((entry) =>
+    entry.presentation.kind === "direct" &&
+    entry.participants.some((participant) => participant.handle.trim().toLowerCase() === normalizedHandle)
+  ) ?? null;
+}
+
+async function resolveSpeakeasyReadTarget(params: {
+  account: ResolvedSpeakeasyAccount;
+  logger: LoggerLike;
+  actionParams: Record<string, unknown>;
+}): Promise<{
+  topicId?: string;
+  requestedTarget: string;
+  resolvedTarget?: string;
+  display?: string;
+  note?: string;
+}> {
+  const requestedTarget =
+    readOptionalStringParam(params.actionParams, "to") ??
+    readOptionalStringParam(params.actionParams, "target") ??
+    readOptionalStringParam(params.actionParams, "topicId") ??
+    readOptionalStringParam(params.actionParams, "groupId") ??
+    readOptionalStringParam(params.actionParams, "channelId");
+
+  if (!requestedTarget) {
+    throw new Error("Speakeasy read requires a target such as topic:<topic_id> or direct:<topic_id>.");
+  }
+
+  const explicitTopicId = resolveSpeakeasyDirectoryTopicId(requestedTarget);
+
+  if (explicitTopicId) {
+    const parsed = parseSpeakeasyExplicitTarget(requestedTarget);
+
+    return {
+      topicId: explicitTopicId,
+      requestedTarget,
+      resolvedTarget: parsed?.to ?? `topic:${explicitTopicId}`,
+      display: parsed?.chatType === "direct" ? `DM ${explicitTopicId}` : `Topic ${explicitTopicId}`
+    };
+  }
+
+  const directHandle = isDirectHandleTarget(requestedTarget) ? normalizeDirectHandle(requestedTarget) : undefined;
+
+  if (directHandle) {
+    const entries = await listSpeakeasyLiveTopics({
+      account: params.account,
+      logger: params.logger
+    });
+    const directTopic = findExistingDirectTopicForHandle(entries, directHandle);
+
+    if (!directTopic) {
+      return {
+        requestedTarget,
+        note: `No existing Speakeasy DM topic was found for ${directHandle}; read is non-mutating and will not create a DM.`
+      };
+    }
+
+    return {
+      topicId: directTopic.topicId,
+      requestedTarget,
+      resolvedTarget: directTopic.presentation.targetId,
+      display: directTopic.presentation.label
+    };
+  }
+
+  const liveMatch = await resolveLiveTopicTarget({
+    account: params.account,
+    logger: params.logger,
+    input: requestedTarget
+  });
+
+  if (!liveMatch) {
+    throw new Error(`Speakeasy read target not found: ${requestedTarget}`);
+  }
+
+  return {
+    topicId: liveMatch.topicId,
+    requestedTarget,
+    resolvedTarget: liveMatch.presentation.targetId,
+    display: liveMatch.presentation.label
+  };
+}
+
+async function handleSpeakeasyReadAction(params: {
+  cfg: OpenClawConfig;
+  accountId?: string | null;
+  actionParams: Record<string, unknown>;
+}) {
+  const account = resolveSpeakeasyAccount(
+    params.cfg as unknown as Record<string, unknown>,
+    params.accountId ?? undefined
+  );
+  const logger = createAccountLogger(account);
+  const target = await resolveSpeakeasyReadTarget({
+    account,
+    logger,
+    actionParams: params.actionParams
+  });
+  const limit = readOptionalIntegerParam(params.actionParams, "limit");
+  const cursor =
+    readOptionalStringParam(params.actionParams, "cursor") ??
+    readOptionalStringParam(params.actionParams, "after");
+  const messageId = readOptionalStringParam(params.actionParams, "messageId");
+
+  if (!target.topicId) {
+    return speakeasyJsonActionResult({
+      ok: true,
+      channel: "speakeasy",
+      action: "read",
+      target: target.requestedTarget,
+      messages: [],
+      note: target.note
+    });
+  }
+
+  const client = createAccountClient({
+    account,
+    logger
+  });
+  const providerMessageId = messageId ? parseSpeakeasyProviderMessageId(messageId) : null;
+  const chatId = providerMessageId?.chatId ?? messageId;
+  const topicId = providerMessageId?.topicId ?? target.topicId;
+  const response = chatId
+    ? await client.getChat(topicId, chatId)
+    : await client.getChats(target.topicId, cursor);
+  const chats = chatId
+    ? Object.values(response.records.chats?.data ?? {})
+    : orderSpeakeasyHistoryChats(response as SpeakeasyHistoryResponse);
+  const messages = chats
+    .slice(0, limit ?? Number.MAX_SAFE_INTEGER)
+    .map(normalizeSpeakeasyReadChat);
+  const nextCursor = "next_cursor" in response ? response.next_cursor : null;
+
+  return speakeasyJsonActionResult({
+    ok: true,
+    channel: "speakeasy",
+    action: "read",
+    target: target.resolvedTarget ?? target.requestedTarget,
+    requestedTarget: target.requestedTarget,
+    topicId: target.topicId,
+    display: target.display,
+    messages,
+    nextCursor
+  });
 }
 
 function matchesSpeakeasyLiveTopic(entry: SpeakeasyLiveTopicEntry, query: string): boolean {
@@ -1022,8 +1274,9 @@ export const speakeasyChannelPlugin = {
       messageToolHints: () => [
         "- Speakeasy topic discovery: list current topics/channels through the channel directory, not stale session history. Use directory groups listing for `openclaw-plugin-speakeasy`; returned targets look like `topic:<topic_id>` or `direct:<topic_id>`.",
         "- Speakeasy participants: after choosing a returned topic/direct target, use directory group members with that target id to list members.",
+        "- Speakeasy history: use `message` action `read` against a returned `topic:<topic_id>` or `direct:<topic_id>` target to check recent replies. Reading by email handle only works when an existing DM topic can be found.",
         "- Speakeasy DMs: to start a new DM when no `direct:<topic_id>` exists yet, send to the person's email-style handle directly, for example `chris@team.speakeasy.to`; the plugin will create the direct chat topic.",
-        "- Speakeasy compatibility: plugin-owned `channel-list` and `thread-list` message actions return the live topic list, but the CLI subcommands `openclaw message channel list` and `openclaw message thread list` are still Discord-shaped and may require `--guild-id`."
+        "- Speakeasy compatibility: plugin-owned `channel-list`, `thread-list`, and `read` message actions use Speakeasy topic targets, but the CLI subcommands `openclaw message channel list` and `openclaw message thread list` are still Discord-shaped and may require `--guild-id`."
       ]
     },
     configSchema: SPEAKEASY_CHANNEL_JSON_SCHEMA as never,
@@ -1457,13 +1710,21 @@ export const speakeasyChannelPlugin = {
   },
   actions: {
     describeMessageTool: () => ({
-      actions: SPEAKEASY_LIST_ACTIONS
+      actions: SPEAKEASY_MESSAGE_ACTIONS
     }),
     supportsAction: ({ action }) =>
-      isSpeakeasyListAction(action),
+      isSpeakeasyMessageAction(action),
     handleAction: async ({ action, cfg, accountId, params }) => {
-      if (!isSpeakeasyListAction(action)) {
+      if (!isSpeakeasyMessageAction(action)) {
         throw new Error(`Unsupported Speakeasy message action: ${action}`);
+      }
+
+      if (action === "read") {
+        return handleSpeakeasyReadAction({
+          cfg,
+          accountId,
+          actionParams: params
+        });
       }
 
       return handleSpeakeasyListAction({

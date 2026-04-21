@@ -93,6 +93,9 @@ export type SpeakeasyChat = {
   topic_id: number | string;
   handle?: string;
   author_handle?: string;
+  created_at?: string | null;
+  updated_at?: string | null;
+  edited_at?: string | null;
   html?: string | null;
   plain?: string | null;
   deleted?: boolean;

@@ -549,7 +549,8 @@ describe("channel gateway", () => {
     expect(actions?.handleAction).toBeTypeOf("function");
     expect(actions?.describeMessageTool({ cfg } as never)?.actions).toEqual([
       "channel-list",
-      "thread-list"
+      "thread-list",
+      "read"
     ]);
 
     globalThis.fetch = vi.fn(async (url: URL | RequestInfo) => {
@@ -613,6 +614,200 @@ describe("channel gateway", () => {
         {
           id: "topic:42",
           name: "Release planning"
+        }
+      ]
+    });
+  });
+
+  it("reads recent messages from a Speakeasy topic target", async () => {
+    expect(actions?.handleAction).toBeTypeOf("function");
+
+    globalThis.fetch = vi.fn(async (url: URL | RequestInfo) => {
+      const href = String(url);
+
+      if (href.endsWith("/api/v1/agent/topics/42/chats")) {
+        return new Response(JSON.stringify({
+          records: {
+            chats: {
+              data: {
+                "101": {
+                  id: 101,
+                  topic_id: 42,
+                  author_handle: "brad@team.speakeasy.to",
+                  plain: "First reply",
+                  created_at: "2026-04-21T01:00:00Z"
+                },
+                "102": {
+                  id: 102,
+                  topic_id: 42,
+                  author_handle: "agent@example.com",
+                  html: "<p>Second reply</p>",
+                  created_at: "2026-04-21T01:01:00Z"
+                }
+              }
+            },
+            timelines: {
+              data: {
+                "1": {
+                  id: 1,
+                  topic_id: 42,
+                  tl_type: "Chat",
+                  tl_id: 101
+                },
+                "2": {
+                  id: 2,
+                  topic_id: 42,
+                  tl_type: "Chat",
+                  tl_id: 102
+                }
+              }
+            }
+          },
+          next_cursor: "cursor-2"
+        }), {
+          status: 200,
+          headers: {
+            "content-type": "application/json"
+          }
+        });
+      }
+
+      throw new Error(`unexpected fetch: ${href}`);
+    }) as never;
+
+    const result = await actions!.handleAction!({
+      channel: "openclaw-plugin-speakeasy",
+      action: "read",
+      cfg,
+      params: {
+        to: "topic:42",
+        limit: 2
+      },
+      accountId: "default"
+    } as never);
+
+    expect(result.details).toMatchObject({
+      ok: true,
+      action: "read",
+      target: "topic:42",
+      topicId: "42",
+      nextCursor: "cursor-2",
+      messages: [
+        {
+          id: "chat:42:101",
+          authorTag: "brad@team.speakeasy.to",
+          text: "First reply"
+        },
+        {
+          id: "chat:42:102",
+          authorTag: "agent@example.com",
+          text: "Second reply"
+        }
+      ]
+    });
+  });
+
+  it("resolves an email handle to an existing DM topic for read", async () => {
+    expect(actions?.handleAction).toBeTypeOf("function");
+
+    globalThis.fetch = vi.fn(async (url: URL | RequestInfo) => {
+      const href = String(url);
+
+      if (href.endsWith("/api/v1/agent/topics")) {
+        return new Response(JSON.stringify({
+          records: {
+            topics: {
+              data: {
+                "7": {
+                  id: 7,
+                  subject: "Untitled",
+                  parent_topic_id: null,
+                  root_topic_id: 7,
+                  spawned_from_chat_id: null
+                },
+                "8": {
+                  id: 8,
+                  subject: "Daily Updates",
+                  parent_topic_id: null,
+                  root_topic_id: 8,
+                  spawned_from_chat_id: null
+                }
+              }
+            },
+            participants: {
+              data: {
+                "1": {
+                  id: 1,
+                  topic_id: 7,
+                  handle: "agent@example.com"
+                },
+                "2": {
+                  id: 2,
+                  topic_id: 7,
+                  handle: "chris@team.speakeasy.to"
+                },
+                "3": {
+                  id: 3,
+                  topic_id: 8,
+                  handle: "chris@team.speakeasy.to"
+                }
+              }
+            }
+          }
+        }), {
+          status: 200,
+          headers: {
+            "content-type": "application/json"
+          }
+        });
+      }
+
+      if (href.endsWith("/api/v1/agent/topics/7/chats")) {
+        return new Response(JSON.stringify({
+          records: {
+            chats: {
+              data: {
+                "201": {
+                  id: 201,
+                  topic_id: 7,
+                  author_handle: "chris@team.speakeasy.to",
+                  plain: "Here is my update"
+                }
+              }
+            }
+          },
+          next_cursor: null
+        }), {
+          status: 200,
+          headers: {
+            "content-type": "application/json"
+          }
+        });
+      }
+
+      throw new Error(`unexpected fetch: ${href}`);
+    }) as never;
+
+    const result = await actions!.handleAction!({
+      channel: "openclaw-plugin-speakeasy",
+      action: "read",
+      cfg,
+      params: {
+        to: "chris@team.speakeasy.to"
+      },
+      accountId: "default"
+    } as never);
+
+    expect(result.details).toMatchObject({
+      ok: true,
+      action: "read",
+      target: "direct:7",
+      topicId: "7",
+      messages: [
+        {
+          id: "chat:7:201",
+          authorTag: "chris@team.speakeasy.to",
+          text: "Here is my update"
         }
       ]
     });
