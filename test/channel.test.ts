@@ -103,6 +103,7 @@ describe("channel gateway", () => {
   const stopAccount = speakeasyChannelPlugin.gateway?.stopAccount;
   const applyAccountConfig = speakeasyChannelPlugin.setup?.applyAccountConfig;
   const listGroupsLive = speakeasyChannelPlugin.directory?.listGroupsLive;
+  const listGroupMembers = speakeasyChannelPlugin.directory?.listGroupMembers;
   const resolveTargets = speakeasyChannelPlugin.resolver?.resolveTargets;
   const buildAccountSnapshot = speakeasyChannelPlugin.status?.buildAccountSnapshot;
 
@@ -313,6 +314,79 @@ describe("channel gateway", () => {
         name: "Release planning"
       })
     ]);
+  });
+
+  it("lists group members for explicit Speakeasy topic and direct targets", async () => {
+    expect(listGroupMembers).toBeTypeOf("function");
+
+    globalThis.fetch = vi.fn(async (url: URL | RequestInfo) => {
+      const href = String(url);
+
+      if (href.endsWith("/api/v1/agent/topics/7/participants")) {
+        return new Response(JSON.stringify({
+          records: {
+            participants: {
+              data: {
+                "1": {
+                  id: 1,
+                  handle: "agent@example.com",
+                  display_name: "OpenClaw Agent"
+                },
+                "2": {
+                  id: 2,
+                  handle: "alice@example.com",
+                  display_name: "Alice Example"
+                }
+              }
+            }
+          }
+        }), {
+          status: 200,
+          headers: {
+            "content-type": "application/json"
+          }
+        });
+      }
+
+      throw new Error(`unexpected fetch: ${href}`);
+    }) as never;
+
+    await expect(listGroupMembers!({
+      cfg,
+      accountId: "default",
+      groupId: "direct:7",
+      runtime: {} as never
+    } as never)).resolves.toEqual([
+      {
+        kind: "user",
+        id: "alice@example.com",
+        name: "Alice Example",
+        handle: "alice@example.com",
+        raw: {
+          topicId: "7",
+          participantId: 2,
+          displayName: "Alice Example"
+        }
+      },
+      {
+        kind: "user",
+        id: "agent@example.com",
+        name: "OpenClaw Agent",
+        handle: "agent@example.com",
+        raw: {
+          topicId: "7",
+          participantId: 1,
+          displayName: "OpenClaw Agent"
+        }
+      }
+    ]);
+
+    await expect(listGroupMembers!({
+      cfg,
+      accountId: "default",
+      groupId: "doug:topic:7",
+      runtime: {} as never
+    } as never)).resolves.toHaveLength(2);
   });
 
   it("resolves topic ids and friendly DM names through the plugin resolver", async () => {

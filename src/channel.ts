@@ -26,11 +26,12 @@ import { SpeakeasyApiClient } from "./client.js";
 import { dedupeEvent, normalizeWebhookEvent, verifyWebhookSignature } from "./events.js";
 import { inferOutboundTarget, SpeakeasyOutboundService } from "./outbound.js";
 import { SpeakeasyPollingLoop } from "./polling.js";
-import { resolveSessionConversation } from "./session-key-api.js";
+import { parseConversationId, resolveSessionConversation } from "./session-key-api.js";
 import { evaluateInboundPolicy } from "./security.js";
 import {
   buildTopicPresentation,
   collectTopicParticipants,
+  getParticipantDisplayLabel,
   isPlaceholderTopicSubject
 } from "./topic-metadata.js";
 import type {
@@ -278,6 +279,28 @@ function parseSpeakeasyExplicitTarget(raw: string): { to: string; chatType: "dir
   return null;
 }
 
+function resolveSpeakeasyDirectoryTopicId(groupId: string): string | null {
+  const trimmed = groupId.trim();
+
+  if (!trimmed) {
+    return null;
+  }
+
+  const explicit = parseSpeakeasyExplicitTarget(trimmed);
+
+  if (explicit) {
+    return explicit.to.replace(/^(?:doug:)?(?:topic|direct):/, "");
+  }
+
+  const sessionConversation = parseConversationId(trimmed);
+
+  if (sessionConversation?.topicId) {
+    return sessionConversation.topicId;
+  }
+
+  return /^\d+$/.test(trimmed) ? trimmed : null;
+}
+
 function describeSpeakeasyDmPolicy(account: ResolvedSpeakeasyAccount): string {
   if (!account.allowDirectMessages) {
     return "disabled";
@@ -408,6 +431,23 @@ function toSpeakeasyDirectoryEntry(entry: SpeakeasyLiveTopicEntry): ChannelDirec
         handle: participant.handle,
         displayName: participant.display_name ?? participant.name ?? participant.handle
       }))
+    }
+  };
+}
+
+function toSpeakeasyMemberDirectoryEntry(params: {
+  participant: SpeakeasyParticipant;
+  topicId: string;
+}): ChannelDirectoryEntry {
+  return {
+    kind: "user",
+    id: params.participant.handle,
+    name: getParticipantDisplayLabel(params.participant),
+    handle: params.participant.handle,
+    raw: {
+      topicId: params.topicId,
+      participantId: params.participant.id,
+      displayName: params.participant.display_name ?? params.participant.name ?? null
     }
   };
 }
@@ -1276,6 +1316,33 @@ export const speakeasyChannelPlugin = {
         .map(toSpeakeasyDirectoryEntry);
 
       return entries;
+    },
+    listGroupMembers: async ({ cfg, accountId, groupId, limit }) => {
+      const account = resolveSpeakeasyAccount(cfg as unknown as Record<string, unknown>, accountId ?? undefined);
+      const logger = createAccountLogger(account);
+      const topicId = resolveSpeakeasyDirectoryTopicId(groupId);
+
+      if (!topicId) {
+        throw new Error(`Unsupported Speakeasy group id: ${groupId}`);
+      }
+
+      const client = createAccountClient({
+        account,
+        logger
+      });
+      const participants = Object.values((await client.getParticipants(topicId)).records.participants?.data ?? {})
+        .sort((left, right) =>
+          getParticipantDisplayLabel(left).localeCompare(getParticipantDisplayLabel(right))
+        )
+        .slice(0, limit ?? Number.MAX_SAFE_INTEGER)
+        .map((participant) =>
+          toSpeakeasyMemberDirectoryEntry({
+            participant,
+            topicId
+          })
+        );
+
+      return participants;
     }
   },
   resolver: {
