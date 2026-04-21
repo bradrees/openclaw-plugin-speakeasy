@@ -5,6 +5,7 @@ import {
   createChannelPluginBase,
   type ChannelPlugin,
   type ChannelDirectoryEntry,
+  type ChannelMessageActionName,
   type OpenClawConfig,
   type PluginRuntime
 } from "openclaw/plugin-sdk/core";
@@ -256,8 +257,40 @@ type SpeakeasyLiveTopicEntry = {
   presentation: ReturnType<typeof buildTopicPresentation>;
 };
 
+const SPEAKEASY_LIST_ACTIONS = ["channel-list", "thread-list"] satisfies ChannelMessageActionName[];
 const EXPLICIT_TARGET_RE = /^(?:topic|direct):.+$/;
 const SESSION_TARGET_RE = /^doug:(?:topic|direct):.+$/;
+
+function isSpeakeasyListAction(action: ChannelMessageActionName): action is (typeof SPEAKEASY_LIST_ACTIONS)[number] {
+  return (SPEAKEASY_LIST_ACTIONS as readonly ChannelMessageActionName[]).includes(action);
+}
+
+function readOptionalStringParam(params: Record<string, unknown>, key: string): string | undefined {
+  const value = params[key];
+
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function readOptionalIntegerParam(params: Record<string, unknown>, key: string): number | undefined {
+  const value = params[key];
+  const numberValue =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && value.trim()
+        ? Number.parseInt(value, 10)
+        : undefined;
+
+  if (typeof numberValue !== "number" || !Number.isFinite(numberValue) || numberValue <= 0) {
+    return undefined;
+  }
+
+  return Math.trunc(numberValue);
+}
 
 function parseSpeakeasyExplicitTarget(raw: string): { to: string; chatType: "direct" | "group" } | null {
   const trimmed = raw.trim();
@@ -400,6 +433,48 @@ async function listSpeakeasyDirectoryGroups(params: {
     .filter((entry) => matchesSpeakeasyLiveTopic(entry, params.query ?? ""))
     .slice(0, params.limit ?? Number.MAX_SAFE_INTEGER)
     .map(toSpeakeasyDirectoryEntry);
+}
+
+async function handleSpeakeasyListAction(params: {
+  action: ChannelMessageActionName;
+  cfg: OpenClawConfig;
+  accountId?: string | null;
+  actionParams: Record<string, unknown>;
+}) {
+  const account = resolveSpeakeasyAccount(
+    params.cfg as unknown as Record<string, unknown>,
+    params.accountId ?? undefined
+  );
+  const query = readOptionalStringParam(params.actionParams, "query");
+  const limit = readOptionalIntegerParam(params.actionParams, "limit");
+  const groups = await listSpeakeasyDirectoryGroups({
+    account,
+    logger: createAccountLogger(account),
+    query,
+    limit
+  });
+
+  const payload = {
+    ok: true,
+    channel: "speakeasy",
+    action: params.action,
+    topics: groups,
+    groups,
+    note:
+      params.action === "thread-list"
+        ? "Speakeasy topics are first-class conversations, not nested OpenClaw threadId values. This compatibility action returns the topic list."
+        : undefined
+  };
+
+  return {
+    details: payload,
+    content: [
+      {
+        type: "text" as const,
+        text: JSON.stringify(payload, null, 2)
+      }
+    ]
+  };
 }
 
 function matchesSpeakeasyLiveTopic(entry: SpeakeasyLiveTopicEntry, query: string): boolean {
@@ -1364,6 +1439,25 @@ export const speakeasyChannelPlugin = {
         );
 
       return participants;
+    }
+  },
+  actions: {
+    describeMessageTool: () => ({
+      actions: SPEAKEASY_LIST_ACTIONS
+    }),
+    supportsAction: ({ action }) =>
+      isSpeakeasyListAction(action),
+    handleAction: async ({ action, cfg, accountId, params }) => {
+      if (!isSpeakeasyListAction(action)) {
+        throw new Error(`Unsupported Speakeasy message action: ${action}`);
+      }
+
+      return handleSpeakeasyListAction({
+        action,
+        cfg,
+        accountId,
+        actionParams: params
+      });
     }
   },
   resolver: {

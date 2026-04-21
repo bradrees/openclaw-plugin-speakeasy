@@ -103,6 +103,7 @@ The plugin exposes Speakeasy topic discovery through normal OpenClaw channel sur
 
 - `directory.listGroups` and `directory.listGroupsLive` expose live topic listing. They return explicit OpenClaw targets such as `topic:42` and `direct:7`.
 - `directory.listGroupMembers` returns live participants for those same topic targets, so `openclaw directory groups members --group-id topic:42` can inspect a topic roster without a plugin-specific tool.
+- `message` tool actions `channel-list` and `thread-list` return the same live topic list as a compatibility bridge for OpenClaw surfaces that ask for channel/thread listings.
 - `resolver.resolveTargets` resolves bare topic ids plus friendly topic/DM labels back into those explicit targets for CLI and tool flows.
 - `messaging.targetResolver` handles post-directory normalization for explicit `topic:` / `direct:` ids and bare numeric topic ids.
 - inbound session labeling uses the same topic metadata helpers, so OpenClaw session/context surfaces see the same DM-aware labels that directory and resolver flows expose.
@@ -122,7 +123,7 @@ Child topics are mapped as separate conversations because Speakeasy documents th
 ## Limitations
 
 - Speakeasy's public topic snapshots do not currently expose a definitive direct-topic flag, so direct-chat classification still relies on explicit `direct:` targets plus participant/subject heuristics.
-- OpenClaw's generic `message channel list` and `message thread list` flows are still Discord-shaped today, so the plugin exposes live topic discovery through `openclaw directory groups list` and `openclaw directory groups members` instead.
+- OpenClaw's generic `message channel list` and `message thread list` CLI subcommands are still Discord-shaped today, so the plugin exposes live topic discovery through `openclaw directory groups list` and `openclaw directory groups members` instead. The model-facing `message` tool can also use the plugin-owned `channel-list` / `thread-list` actions.
 - OpenClaw's channel SDK currently exposes directory and resolver hooks for this, but not a separate topic-browser API, so topic enumeration is intentionally surfaced through those existing channel interfaces.
 - webhook mode assumes the OpenClaw gateway host exposes the plugin route directly
 - attachment upload is implemented through direct-upload + `chat.sgid`, but inline media rendering depends on the receiving Speakeasy client

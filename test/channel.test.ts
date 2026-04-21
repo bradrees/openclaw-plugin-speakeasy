@@ -105,6 +105,7 @@ describe("channel gateway", () => {
   const listGroups = speakeasyChannelPlugin.directory?.listGroups;
   const listGroupsLive = speakeasyChannelPlugin.directory?.listGroupsLive;
   const listGroupMembers = speakeasyChannelPlugin.directory?.listGroupMembers;
+  const actions = speakeasyChannelPlugin.actions;
   const resolveTargets = speakeasyChannelPlugin.resolver?.resolveTargets;
   const buildAccountSnapshot = speakeasyChannelPlugin.status?.buildAccountSnapshot;
 
@@ -490,5 +491,78 @@ describe("channel gateway", () => {
         note: "direct message"
       }
     ]);
+  });
+
+  it("exposes topic listing through message channel and thread list actions", async () => {
+    expect(actions?.handleAction).toBeTypeOf("function");
+    expect(actions?.describeMessageTool({ cfg } as never)?.actions).toEqual([
+      "channel-list",
+      "thread-list"
+    ]);
+
+    globalThis.fetch = vi.fn(async (url: URL | RequestInfo) => {
+      const href = String(url);
+
+      if (href.endsWith("/api/v1/agent/topics")) {
+        return new Response(JSON.stringify({
+          records: {
+            topics: {
+              data: {
+                "42": {
+                  id: 42,
+                  subject: "Release planning",
+                  parent_topic_id: null,
+                  root_topic_id: 42,
+                  spawned_from_chat_id: null
+                }
+              }
+            }
+          }
+        }), {
+          status: 200,
+          headers: {
+            "content-type": "application/json"
+          }
+        });
+      }
+
+      throw new Error(`unexpected fetch: ${href}`);
+    }) as never;
+
+    const channelList = await actions!.handleAction!({
+      channel: "openclaw-plugin-speakeasy",
+      action: "channel-list",
+      cfg,
+      params: {},
+      accountId: "default"
+    } as never);
+    const threadList = await actions!.handleAction!({
+      channel: "openclaw-plugin-speakeasy",
+      action: "thread-list",
+      cfg,
+      params: {},
+      accountId: "default"
+    } as never);
+
+    expect(channelList.details).toMatchObject({
+      ok: true,
+      action: "channel-list",
+      topics: [
+        {
+          id: "topic:42",
+          name: "Release planning"
+        }
+      ]
+    });
+    expect(threadList.details).toMatchObject({
+      ok: true,
+      action: "thread-list",
+      topics: [
+        {
+          id: "topic:42",
+          name: "Release planning"
+        }
+      ]
+    });
   });
 });
