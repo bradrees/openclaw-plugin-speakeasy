@@ -653,11 +653,11 @@ async function enrichInboundEvent(params) {
     };
 }
 async function buildReplyDeliverer(params) {
-    const client = createAccountClient({
-        account: params.account,
-        logger: params.logger
-    });
-    const outbound = new SpeakeasyOutboundService(client, params.logger);
+    const outbound = params.outbound ??
+        new SpeakeasyOutboundService(createAccountClient({
+            account: params.account,
+            logger: params.logger
+        }), params.logger);
     const target = params.event.conversation.kind === "direct"
         ? { kind: "topic", topicId: params.event.conversation.providerIds.topicId }
         : { kind: "topic", topicId: params.event.conversation.providerIds.topicId };
@@ -714,6 +714,50 @@ async function buildReplyDeliverer(params) {
             }
         });
     });
+}
+function resolveInboundReplyTypingTopicId(event) {
+    const topicId = event.conversation.providerIds.topicId.trim();
+    if (!topicId) {
+        return null;
+    }
+    return event.conversation.kind === "direct" || event.conversation.kind === "topic"
+        ? topicId
+        : null;
+}
+async function safelySetSpeakeasyTopicTyping(params) {
+    try {
+        await params.setTyping(params.typing);
+    }
+    catch (error) {
+        params.logger.warn("failed to update Speakeasy typing indicator", {
+            topicId: params.topicId,
+            typing: params.typing,
+            error: error instanceof Error ? error.message : String(error)
+        });
+    }
+}
+export async function withSpeakeasyTopicTyping(params) {
+    const topicId = params.topicId?.trim();
+    if (!topicId) {
+        return params.run();
+    }
+    await safelySetSpeakeasyTopicTyping({
+        topicId,
+        typing: true,
+        logger: params.logger,
+        setTyping: params.setTyping
+    });
+    try {
+        return await params.run();
+    }
+    finally {
+        await safelySetSpeakeasyTopicTyping({
+            topicId,
+            typing: false,
+            logger: params.logger,
+            setTyping: params.setTyping
+        });
+    }
 }
 async function dispatchInboundEvent(params) {
     const runtime = runtimeStore.getRuntime();
@@ -785,10 +829,15 @@ async function dispatchInboundEvent(params) {
     const storePath = runtime.channel.session.resolveStorePath(undefined, {
         agentId: route.agentId
     });
+    const outbound = new SpeakeasyOutboundService(createAccountClient({
+        account: params.account,
+        logger: params.logger
+    }), params.logger);
     const deliver = await buildReplyDeliverer({
         account: params.account,
         event: params.event,
-        logger: params.logger
+        logger: params.logger,
+        outbound
     });
     await runtime.channel.session.recordInboundSession({
         storePath,
@@ -800,17 +849,30 @@ async function dispatchInboundEvent(params) {
             });
         }
     });
-    await runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
-        ctx: ctxPayload,
-        cfg: params.cfg,
-        dispatcherOptions: {
-            deliver,
-            onError: (error, info) => {
-                params.logger.error("failed to dispatch Speakeasy reply", {
-                    kind: info.kind,
-                    error: error instanceof Error ? error.message : String(error)
-                });
+    const typingTopicId = resolveInboundReplyTypingTopicId(params.event);
+    await withSpeakeasyTopicTyping({
+        topicId: typingTopicId,
+        logger: params.logger,
+        setTyping: async (typing) => {
+            if (!typingTopicId) {
+                return;
             }
+            await outbound.setTyping({ topicId: typingTopicId, typing });
+        },
+        run: async () => {
+            await runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
+                ctx: ctxPayload,
+                cfg: params.cfg,
+                dispatcherOptions: {
+                    deliver,
+                    onError: (error, info) => {
+                        params.logger.error("failed to dispatch Speakeasy reply", {
+                            kind: info.kind,
+                            error: error instanceof Error ? error.message : String(error)
+                        });
+                    }
+                }
+            });
         }
     });
 }

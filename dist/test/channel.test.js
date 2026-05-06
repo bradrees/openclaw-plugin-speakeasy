@@ -15,7 +15,7 @@ vi.mock("openclaw/plugin-sdk/runtime-store", () => ({
         }
     }))
 }));
-const { speakeasyChannelPlugin } = await import("../src/channel.js");
+const { speakeasyChannelPlugin, withSpeakeasyTopicTyping } = await import("../src/channel.js");
 class FakeWebSocket {
     url;
     static instances = [];
@@ -738,6 +738,67 @@ describe("channel gateway", () => {
                 }
             ]
         });
+    });
+});
+describe("Speakeasy reply typing", () => {
+    function createLogger() {
+        return {
+            debug: vi.fn(),
+            info: vi.fn(),
+            warn: vi.fn(),
+            error: vi.fn()
+        };
+    }
+    it("wraps reply generation with topic typing", async () => {
+        const logger = createLogger();
+        const calls = [];
+        await expect(withSpeakeasyTopicTyping({
+            topicId: "42",
+            logger,
+            setTyping: async (typing) => {
+                calls.push(`typing:${String(typing)}`);
+            },
+            run: async () => {
+                calls.push("run");
+                return "done";
+            }
+        })).resolves.toBe("done");
+        expect(calls).toEqual(["typing:true", "run", "typing:false"]);
+        expect(logger.warn).not.toHaveBeenCalled();
+    });
+    it("clears topic typing when reply generation fails", async () => {
+        const logger = createLogger();
+        const calls = [];
+        await expect(withSpeakeasyTopicTyping({
+            topicId: "42",
+            logger,
+            setTyping: async (typing) => {
+                calls.push(`typing:${String(typing)}`);
+            },
+            run: async () => {
+                calls.push("run");
+                throw new Error("dispatch failed");
+            }
+        })).rejects.toThrow("dispatch failed");
+        expect(calls).toEqual(["typing:true", "run", "typing:false"]);
+    });
+    it("does not block reply generation when typing updates fail", async () => {
+        const logger = createLogger();
+        const calls = [];
+        await expect(withSpeakeasyTopicTyping({
+            topicId: "42",
+            logger,
+            setTyping: async (typing) => {
+                calls.push(`typing:${String(typing)}`);
+                throw new Error(`typing ${String(typing)} failed`);
+            },
+            run: async () => {
+                calls.push("run");
+                return "done";
+            }
+        })).resolves.toBe("done");
+        expect(calls).toEqual(["typing:true", "run", "typing:false"]);
+        expect(logger.warn).toHaveBeenCalledTimes(2);
     });
 });
 //# sourceMappingURL=channel.test.js.map
