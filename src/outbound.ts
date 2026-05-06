@@ -134,7 +134,11 @@ export class SpeakeasyOutboundService {
 }
 
 export function normalizeDirectHandle(input: string): string {
-  return input.trim().replace(/^user:/i, "").replace(/^@/, "");
+  return input.trim().replace(/^user:/i, "").replace(/^(?:[^:]+:)?direct:/i, "").replace(/^@/, "");
+}
+
+function normalizeConversationId(input: string): string {
+  return input.trim().replace(/^(?:[^:]+:)?topic:/i, "").replace(/^(?:[^:]+:)?direct:/i, "");
 }
 
 export function inferOutboundTarget(input: string, _account: SpeakeasyAccountConfig): OutboundTarget {
@@ -149,6 +153,6 @@ export function inferOutboundTarget(input: string, _account: SpeakeasyAccountCon
 
   return {
     kind: "topic",
-    topicId: input.replace(/^topic:/, "").replace(/^direct:/, "")
+    topicId: normalizeConversationId(input)
   };
 }

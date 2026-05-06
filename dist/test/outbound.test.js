@@ -53,9 +53,24 @@ describe("outbound", () => {
     it("normalizes email handles for originated direct messages", () => {
         expect(normalizeDirectHandle("user:chris@team.speakeasy.to")).toBe("chris@team.speakeasy.to");
         expect(normalizeDirectHandle("@kaye@powertoolsapp.com")).toBe("kaye@powertoolsapp.com");
+        expect(normalizeDirectHandle("doug:direct:chris@team.speakeasy.to")).toBe("chris@team.speakeasy.to");
         expect(inferOutboundTarget("user:luke@team.speakeasy.to", {})).toEqual({
             kind: "direct",
             handle: "luke@team.speakeasy.to"
+        });
+    });
+    it("normalizes OpenClaw Speakeasy conversation ids to raw topic ids", () => {
+        expect(inferOutboundTarget("doug:topic:185368433", {})).toEqual({
+            kind: "topic",
+            topicId: "185368433"
+        });
+        expect(inferOutboundTarget("topic:185368433", {})).toEqual({
+            kind: "topic",
+            topicId: "185368433"
+        });
+        expect(inferOutboundTarget("main:topic:185368433", {})).toEqual({
+            kind: "topic",
+            topicId: "185368433"
         });
     });
 });

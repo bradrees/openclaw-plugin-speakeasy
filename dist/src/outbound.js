@@ -83,7 +83,10 @@ export class SpeakeasyOutboundService {
     }
 }
 export function normalizeDirectHandle(input) {
-    return input.trim().replace(/^user:/i, "").replace(/^@/, "");
+    return input.trim().replace(/^user:/i, "").replace(/^(?:[^:]+:)?direct:/i, "").replace(/^@/, "");
+}
+function normalizeConversationId(input) {
+    return input.trim().replace(/^(?:[^:]+:)?topic:/i, "").replace(/^(?:[^:]+:)?direct:/i, "");
 }
 export function inferOutboundTarget(input, _account) {
     const directHandle = normalizeDirectHandle(input);
@@ -95,7 +98,7 @@ export function inferOutboundTarget(input, _account) {
     }
     return {
         kind: "topic",
-        topicId: input.replace(/^topic:/, "").replace(/^direct:/, "")
+        topicId: normalizeConversationId(input)
     };
 }
 //# sourceMappingURL=outbound.js.map
