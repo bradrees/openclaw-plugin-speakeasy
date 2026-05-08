@@ -1,5 +1,5 @@
 {
-  "name": "@speakeasyto/openclaw-plugin-speakeasy",
+  "name": "openclaw-plugin-speakeasy",
   "version": "0.1.0",
   "description": "OpenClaw channel plugin for the Speakeasy external agent API.",
   "type": "module",

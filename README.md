@@ -1,4 +1,4 @@
-# `@speakeasyto/openclaw-plugin-speakeasy`
+# `openclaw-plugin-speakeasy`
 
 Standalone OpenClaw channel plugin for the Speakeasy external agent API.
 
@@ -33,7 +33,7 @@ The plugin assumes the connected agent grant exposes:
 ## Install
 
 ```bash
-openclaw plugins install @speakeasyto/openclaw-plugin-speakeasy
+openclaw plugins install openclaw-plugin-speakeasy
 openclaw gateway restart
 ```
 
