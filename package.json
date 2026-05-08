@@ -7,17 +7,20 @@
   "author": "Brad Rees",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/bradrees/openclaw-plugin-speakeasy.git"
+    "url": "git+https://github.com/speakeasyto/openclaw-plugin-speakeasy.git"
   },
-  "homepage": "https://github.com/bradrees/openclaw-plugin-speakeasy#readme",
+  "homepage": "https://github.com/speakeasyto/openclaw-plugin-speakeasy#readme",
   "bugs": {
-    "url": "https://github.com/bradrees/openclaw-plugin-speakeasy/issues"
+    "url": "https://github.com/speakeasyto/openclaw-plugin-speakeasy/issues"
   },
   "files": [
-    "dist",
+    "dist/src",
     "README.md",
     "openclaw.plugin.json"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "exports": {
     ".": {
       "types": "./dist/src/index.d.ts",
