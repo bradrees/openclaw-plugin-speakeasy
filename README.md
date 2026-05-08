@@ -46,7 +46,7 @@ openclaw gateway restart
       "accounts": {
         "default": {
           "enabled": true,
-          "baseUrl": "https://speakeasy.example.com",
+          "baseUrl": "https://speakeasy.to",
           "accessToken": "spk_access_token",
           "refreshToken": "spk_refresh_token",
           "transport": "websocket",
